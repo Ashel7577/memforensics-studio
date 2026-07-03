@@ -59,12 +59,25 @@ try:
     from reportlab.pdfgen import canvas
     REPORTLAB_AVAILABLE = True
 except ImportError as e:
-    REPORTLAB_AVAILABLE = False
-    print(f"[!] ReportLab import error: {e}")
-    print("    Install: pip install reportlab")
-    # stub HexColor so module-level code doesn't crash
-    class HexColor:
-        def __init__(self, h): self.h = h
+    print(f"[!] ReportLab not available: {e}")
+    print("    Attempting install...")
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "reportlab", "pillow", "--user", "-q"])
+    # Re-import after install
+    from reportlab.lib.pagesizes import A4, letter, landscape
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch, mm, cm
+    from reportlab.lib.colors import HexColor, black, white, grey, lightgrey, Color
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY, TA_RIGHT
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle,
+        Image, KeepTogether, Flowable, Frame, PageTemplate, BaseDocTemplate
+    )
+    from reportlab.graphics.shapes import Drawing, Rect, String, Line, Circle, Wedge
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics import renderPDF
+    from reportlab.pdfgen import canvas
+    REPORTLAB_AVAILABLE = True
 
 # ============================================================================
 # COLOR PALETTE — Professional Dark Theme (SANS/Mandiant inspired)
