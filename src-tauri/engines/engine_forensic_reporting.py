@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+import subprocess, sys
+for pkg in ["reportlab", "pillow"]:
+    try:
+        __import__(pkg if pkg != "pillow" else "PIL")
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
+
 """
 engine_forensic_reporting.py — ENGINE 7 (FINAL)
 Professional DFIR Report Generator — Academic/Conference Publication Quality
