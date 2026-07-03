@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-import subprocess, sys
-for pkg in ["reportlab", "pillow"]:
+import subprocess, sys, os
+
+# Force install to exact Python running this script
+def ensure(pkg, import_as=None):
     try:
-        __import__(pkg if pkg != "pillow" else "PIL")
+        __import__(import_as or pkg)
     except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "--quiet", "--user"])
+        __import__(import_as or pkg)
+
+ensure("reportlab")
+ensure("pillow", "PIL")
 
 """
 engine_forensic_reporting.py — ENGINE 7 (FINAL)
