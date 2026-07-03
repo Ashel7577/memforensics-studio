@@ -396,6 +396,7 @@ pub fn run() {
             pipelines: Arc::new(Mutex::new(HashMap::new())),
         })
         .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             open_file_dialog,
             start_pipeline,

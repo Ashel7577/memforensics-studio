@@ -21,10 +21,16 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
       - run: npx tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: src-tauri/target/release/bundle/macos/*.dmg
+          path: |
+            src-tauri/target/release/bundle/macos/*.dmg
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
 
   build-windows:
     runs-on: windows-latest
@@ -41,7 +47,58 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
       - run: npx tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - uses: actions/upload-artifact@v4
         with:
           name: windows-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/msi/*.msi.zip
+            src-tauri/target/release/bundle/msi/*.msi.zip.sig
+
+  publish-release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create latest.json
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          MAC_SIG=$(cat artifacts/macos-dmg/*.sig 2>/dev/null | head -1 || echo "")
+          WIN_SIG=$(cat artifacts/windows-msi/*.sig 2>/dev/null | head -1 || echo "")
+          cat > latest.json << ENDJSON
+          {
+            "version": "v${VERSION}",
+            "notes": "MemForensics Studio ${VERSION}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-aarch64": {
+                "url": "https://github.com/Ashel7577/memforensics-studio/releases/download/v${VERSION}/MemForensics.Studio_${VERSION}_aarch64.app.tar.gz",
+                "signature": "${MAC_SIG}"
+              },
+              "darwin-x86_64": {
+                "url": "https://github.com/Ashel7577/memforensics-studio/releases/download/v${VERSION}/MemForensics.Studio_${VERSION}_x64.app.tar.gz",
+                "signature": "${MAC_SIG}"
+              },
+              "windows-x86_64": {
+                "url": "https://github.com/Ashel7577/memforensics-studio/releases/download/v${VERSION}/MemForensics.Studio_${VERSION}_x64_en-US.msi.zip",
+                "signature": "${WIN_SIG}"
+              }
+            }
+          }
+          ENDJSON
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/macos-dmg/*
+            artifacts/windows-msi/*
+            latest.json
+          generate_release_notes: true

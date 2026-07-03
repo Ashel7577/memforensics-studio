@@ -40,5 +40,14 @@
     "resources": [
       "engines/*"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVDODQ5ODIwMjQzRjE5QzcKUldUSEdUOGtJSmlFN0hTTitvTStBZUowT0p0UEs4L2x4bnZCalNvc256L3g3RzloUkpoT3NCWUgK",
+      "endpoints": [
+        "https://github.com/Ashel7577/memforensics-studio/releases/latest/download/latest.json"
+      ],
+      "dialog": true
+    }
   }
 }
