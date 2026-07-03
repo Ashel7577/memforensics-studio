@@ -56,6 +56,9 @@ except ImportError as e:
     REPORTLAB_AVAILABLE = False
     print(f"[!] ReportLab import error: {e}")
     print("    Install: pip install reportlab")
+    # stub HexColor so module-level code doesn't crash
+    class HexColor:
+        def __init__(self, h): self.h = h
 
 # ============================================================================
 # COLOR PALETTE — Professional Dark Theme (SANS/Mandiant inspired)
