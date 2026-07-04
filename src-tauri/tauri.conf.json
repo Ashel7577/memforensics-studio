@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:;",
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: data: blob: asset: ipc: tauri:;",
       "capabilities": []
     }
   },
