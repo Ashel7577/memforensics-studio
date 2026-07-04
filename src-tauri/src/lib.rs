@@ -204,45 +204,46 @@ async fn start_pipeline(
             }
         };
 
+        let bin = format!("{}/memforensics_engine", e);
         let engine_configs: Vec<(u8, Vec<String>, &str)> = vec![
             (1, vec![
-                format!("{}/engine_memory_acquisition.py", e),
+                "1".into(),
                 d.clone(),
                 "--method".into(), "VM snapshot".into(),
                 "--output".into(), format!("{}/01_memory_evidence.json", o),
             ], "01_memory_evidence.json"),
             (2, vec![
-                format!("{}/engine_os_structure_extractor.py", e),
+                "2".into(),
                 format!("{}/01_memory_evidence.json", o),
                 d.clone(),
                 "--output".into(), format!("{}/02_os_structures.json", o),
                 "--limit".into(), limit.clone(),
             ], "02_os_structures.json"),
             (3, vec![
-                format!("{}/engine_private_exec_memory_analyzer.py", e),
+                "3".into(),
                 format!("{}/02_os_structures.json", o),
                 "--output".into(), format!("{}/03_private_exec_regions.json", o),
             ], "03_private_exec_regions.json"),
             (4, vec![
-                format!("{}/engine_execution_evidence_correlator.py", e),
+                "4".into(),
                 format!("{}/02_os_structures.json", o),
                 format!("{}/03_private_exec_regions.json", o),
                 "--output".into(), format!("{}/04_execution_evidence.json", o),
             ], "04_execution_evidence.json"),
             (5, vec![
-                format!("{}/engine_execution_flow_reconstructor.py", e),
+                "5".into(),
                 format!("{}/04_execution_evidence.json", o),
                 "--output".into(), format!("{}/05_execution_timeline.json", o),
             ], "05_execution_timeline.json"),
             (6, vec![
-                format!("{}/engine_injection_technique_classifier.py", e),
+                "6".into(),
                 format!("{}/05_execution_timeline.json", o),
                 format!("{}/03_private_exec_regions.json", o),
                 "--os-structures".into(), format!("{}/02_os_structures.json", o),
                 "--output".into(), format!("{}/06_classification.json", o),
             ], "06_classification.json"),
             (7, vec![
-                format!("{}/engine_forensic_reporting.py", e),
+                "7".into(),
                 format!("{}/06_classification.json", o),
                 "--timeline".into(), format!("{}/05_execution_timeline.json", o),
                 "--output".into(), format!("{}/07_forensic_report.pdf", o),
@@ -264,8 +265,7 @@ async fn start_pipeline(
                 &format!("[ENGINE {}] Starting {}...", engine_num, engine_names()[(engine_num-1) as usize]),
                 "info");
 
-            let mut child = match Command::new("/usr/bin/env")
-                .arg("python3")
+            let mut child = match Command::new(&bin)
                 .args(&args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
