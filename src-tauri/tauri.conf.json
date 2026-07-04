@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; frame-src https://challenges.cloudflare.com https://memforensics.netlify.app; connect-src 'self' https:;",
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:;",
       "capabilities": []
     }
   },
@@ -45,7 +45,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVDODQ5ODIwMjQzRjE5QzcKUldUSEdUOGtJSmlFN0hTTitvTStBZUowT0p0UEs4L2x4bnZCalNvc256L3g3RzloUkpoT3NCWUgK",
       "endpoints": [
-        "https://github.com/Ashel7577/memforensics-studio/releases/latest/download/latest.json"
+        "https://memforensics-studio.netlify.app/latest.json"
       ],
       "dialog": true
     }
