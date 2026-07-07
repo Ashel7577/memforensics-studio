@@ -76,17 +76,13 @@ fn make_engine_progress(num: u8, status: &str) -> EngineProgress {
 }
 
 #[tauri::command]
-async fn open_file_dialog() -> Result<String, String> {
-    let output = Command::new("osascript")
-        .arg("-e")
-        .arg("POSIX path of (choose file with prompt \"Select memory dump file\")")
-        .output()
-        .map_err(|e| e.to_string())?;
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        return Err("No file selected".to_string());
+async fn open_file_dialog(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let file = app.dialog().file().blocking_pick_file();
+    match file {
+        Some(f) => Ok(f.to_string()),
+        None => Err("No file selected".to_string()),
     }
-    Ok(path)
 }
 
 #[tauri::command]
@@ -204,7 +200,8 @@ async fn start_pipeline(
             }
         };
 
-        let bin = format!("{}/memforensics_engine", e);
+        let bin_name = if cfg!(target_os = "windows") { "memforensics_engine.exe" } else { "memforensics_engine" };
+        let bin = format!("{}/{}", e, bin_name);
         let engine_configs: Vec<(u8, Vec<String>, &str)> = vec![
             (1, vec![
                 "1".into(),
@@ -372,14 +369,20 @@ async fn download_artifact(app: tauri::AppHandle, job_id: String, filename: Stri
             .map(|a| a.path.clone())
     };
     if let Some(path) = path {
+        #[cfg(target_os = "macos")]
         Command::new("open").arg("--reveal").arg(&path).spawn().map_err(|e| e.to_string())?;
+        #[cfg(target_os = "windows")]
+        Command::new("explorer").arg("/select,").arg(&path).spawn().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
 #[tauri::command]
 async fn open_file(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
     Command::new("open").arg(&path).spawn().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    Command::new("cmd").args(["/C", "start", "", &path]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -463,6 +466,9 @@ async fn read_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
     Command::new("open").arg(&url).spawn().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    Command::new("cmd").args(["/C", "start", "", &url]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }

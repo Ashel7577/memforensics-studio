@@ -55,9 +55,16 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
     const prog = progRef.current!;
     const progBar = progBarRef.current!;
     const ctx = cv.getContext("2d")!;
-    const W = cv.width = wrap.clientWidth;
-    const H = cv.height = wrap.clientHeight;
-    const cx = W / 2, cy = H / 2;
+    let W = cv.width = wrap.clientWidth;
+    let H = cv.height = wrap.clientHeight;
+    let cx = W / 2, cy = H / 2;
+
+    const handleResize = () => {
+      W = cv.width = wrap.clientWidth;
+      H = cv.height = wrap.clientHeight;
+      cx = W / 2; cy = H / 2;
+    };
+    window.addEventListener('resize', handleResize);
 
     const T_FORM = 1900, T_SCAN = 4000, T_LOCK = 4900, T_FADE = 5700, T_NAME = 7600, T_DASH = 9600;
 
@@ -356,7 +363,7 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
 
     raf = requestAnimationFrame(frame);
     const safety = setTimeout(() => onCompleteRef.current(), T_DASH + 1500);
-    return () => { cancelAnimationFrame(raf); clearTimeout(safety); };
+    return () => { cancelAnimationFrame(raf); clearTimeout(safety); window.removeEventListener('resize', handleResize); };
   }, []);
 
   return (
