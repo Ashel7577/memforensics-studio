@@ -17,6 +17,16 @@ jobs:
         with:
           node-version: 24
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PyInstaller and build engine binary
+        run: |
+          pip install pyinstaller reportlab volatility3
+          cd src-tauri/engines
+          pyinstaller --onefile --name memforensics_engine orchestrator.py
+          cp dist/memforensics_engine ./memforensics_engine
+          chmod +x ./memforensics_engine
       - run: npm install
       - run: npm run build
         env:
@@ -49,6 +59,15 @@ jobs:
         with:
           node-version: 24
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PyInstaller and build engine binary
+        run: |
+          pip install pyinstaller reportlab volatility3
+          cd src-tauri/engines
+          pyinstaller --onefile --name memforensics_engine orchestrator.py
+          copy dist\memforensics_engine.exe .\memforensics_engine.exe
       - run: npm install
       - run: npm run build
         env:
