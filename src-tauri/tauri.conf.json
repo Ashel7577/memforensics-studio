@@ -40,7 +40,12 @@
     },
     "resources": [
       "engines/*"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
   },
   "plugins": {
     "updater": {
