@@ -204,7 +204,7 @@ async fn start_pipeline(
             }
         };
 
-        let bin = format!("{}/memforensics_engine", e);
+        let bin = if cfg!(windows) { format!("{}\\memforensics_engine.exe", e) } else { format!("{}/memforensics_engine", e) };
         let engine_configs: Vec<(u8, Vec<String>, &str)> = vec![
             (1, vec![
                 "1".into(),
