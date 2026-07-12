@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-import subprocess, sys, os
-
-# Force install to exact Python running this script
-def ensure(pkg, import_as=None):
-    try:
-        __import__(import_as or pkg)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "--quiet", "--user"])
-        __import__(import_as or pkg)
-
-ensure("reportlab")
-ensure("pillow", "PIL")
-
 """
 engine_forensic_reporting.py — ENGINE 7 (FINAL)
 Professional DFIR Report Generator — Academic/Conference Publication Quality
@@ -59,38 +46,22 @@ try:
     from reportlab.pdfgen import canvas
     REPORTLAB_AVAILABLE = True
 except ImportError as e:
-    print(f"[!] ReportLab not available: {e}")
-    print("    Attempting install...")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "reportlab", "pillow", "--user", "-q"])
-    # Re-import after install
-    from reportlab.lib.pagesizes import A4, letter, landscape
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import inch, mm, cm
-    from reportlab.lib.colors import HexColor, black, white, grey, lightgrey, Color
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY, TA_RIGHT
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle,
-        Image, KeepTogether, Flowable, Frame, PageTemplate, BaseDocTemplate
-    )
-    from reportlab.graphics.shapes import Drawing, Rect, String, Line, Circle, Wedge
-    from reportlab.graphics.charts.barcharts import VerticalBarChart
-    from reportlab.graphics import renderPDF
-    from reportlab.pdfgen import canvas
-    REPORTLAB_AVAILABLE = True
+    REPORTLAB_AVAILABLE = False
+    print(f"[!] ReportLab import error: {e}")
+    print("    Install: pip install reportlab")
 
 # ============================================================================
 # COLOR PALETTE — Professional Dark Theme (SANS/Mandiant inspired)
 # ============================================================================
 C = {
-    "bg_dark":       HexColor("#0d1117"),
-    "bg_card":       HexColor("#161b22"),
-    "bg_card_alt":   HexColor("#1c2333"),
-    "bg_input":      HexColor("#21262d"),
+    "bg_dark":       HexColor("#ffffff"),
+    "bg_card":       HexColor("#f6f8fa"),
+    "bg_card_alt":   HexColor("#eaeef2"),
+    "bg_input":      HexColor("#f0f2f4"),
     "border":        HexColor("#30363d"),
     "border_light":  HexColor("#484f58"),
-    "text_primary":  HexColor("#e6edf3"),
-    "text_secondary":HexColor("#8b949e"),
+    "text_primary":  HexColor("#1c2128"),
+    "text_secondary":HexColor("#57606a"),
     "text_muted":    HexColor("#6e7681"),
     "accent_blue":   HexColor("#58a6ff"),
     "accent_green":  HexColor("#3fb950"),
@@ -912,10 +883,8 @@ def build_section5_mitre(story, pipeline):
     
     story.append(Paragraph("5. MITRE ATT&amp;CK MAPPING &amp; COVERAGE", S["h1"]))
     
-    cls_list = pipeline.get("classification", {}).get("classifications", [])
-    all_techniques = [t for c in cls_list for t in c.get("attack_techniques", [])]
-    total_tech = len(all_techniques)
-    total_stages = len(set(t.get("technique_id","") for t in all_techniques))
+    total_tech = mitre.get("total_techniques", len(techniques))
+    total_stages = mitre.get("kill_chain_stages", len(kill_chain))
     
     story.append(Paragraph(
         f"The attack chain maps to <b>{total_tech} techniques</b> across <b>{total_stages} kill chain stages</b>, "
@@ -946,7 +915,7 @@ def build_section5_mitre(story, pipeline):
     ]]
     
     for key, name in tactic_names.items():
-        covered = covered = len(all_techniques) > 0
+        covered = coverage.get(key, False)
         # Count techniques in this tactic
         tech_count = sum(1 for t in kill_chain if t.get("tactic_id","") == name.split()[0])
         
@@ -1173,7 +1142,6 @@ def build_section7_iocs(story, pipeline, details):
     if file_iocs:
         file_data.append(["Malicious DLL", file_iocs.get("malicious_dll","3435.dll")])
         file_data.append(["Entry Function", file_iocs.get("entrypoint","entry")])
-        file_data.append(["Potential Path", clean(file_iocs.get("potential_download_path",""))])
         file_data.append(["SHA256", file_iocs.get("sha256","")])
     else:
         file_data.append(["Malicious DLL", "3435.dll"])
@@ -1187,11 +1155,15 @@ def build_section7_iocs(story, pipeline, details):
     proc_iocs = ioc_summary.get("process_iocs", {})
     
     proc_data = [[Paragraph("<b>Indicator</b>", S["small"]), Paragraph("<b>Value</b>", S["small"])]]
-    if proc_iocs:
-        proc_data.append(["Malicious Parent", proc_iocs.get("malicious_parent","powershell.exe")])
-        proc_data.append(["LOLBIN Executor", proc_iocs.get("lolbin","rundll32.exe")])
-        proc_data.append(["Injected PID Count", str(proc_iocs.get("injected_pid_count",37))])
-        proc_data.append(["Injection Technique", "APC Injection (T1055.004)"])
+    cls_list_ioc = pipeline.get("classification", {}).get("classifications", [])
+    cs = pipeline.get("classification", {}).get("case_summary", {})
+    proc_data.append(["Injected PID Count", str(len(cls_list_ioc))])
+    proc_data.append(["Injection Technique", cs.get("injection_technique", "APC Injection (T1055.004)")])
+    for c in cls_list_ioc:
+        pi = c.get("process_info", {})
+        if pi.get("image_name"):
+            proc_data.append([f"Injected Process (PID {c.get('pid','?')})", pi.get("image_name")])
+            proc_data.append([f"Parent Process (PID {pi.get('ppid','?')})", pi.get("parent_image_name","Unknown")])
     
     story.append(make_table(proc_data, col_widths=[2*inch, 4*inch]))
     
@@ -1564,11 +1536,12 @@ def build_appendix1_process_inventory(story, pipeline):
     
     for c in sorted(classifs, key=lambda x: x.get("pid",99999)):
         pid = c.get("pid","?")
-        pname = c.get("process", "?")
-        ppid = c.get("parent_image_name", "?")
-        threads = "?"
+        pi = c.get("process_info", {})
+        pname = pi.get("image_name") or c.get("process_name", "?")
+        ppid = pi.get("ppid", "?")
+        threads = c.get("threads_injected", "?")
         inj_type = c.get("technique", "APC")
-        conf = c.get("confidence", "HIGH")
+        conf = c.get("confidence_level", c.get("confidence", "HIGH"))
         is_sys = "SYS" if str(pname).lower() in SYSTEM_PROCS else "USR"
         
         proc_data.append([
@@ -2052,7 +2025,7 @@ def generate_report(classification_path, timeline_path, output_path):
     build_ec_statement(story, pipeline)
     build_section1_overview(story, pipeline, details, pipeline)
     build_section2_attack_chain(story, pipeline, details)
-    build_section3_malware_c2(story, pipeline, details)
+    build_section3_malware_c2(story, details, pipeline)
     build_section4_user_attribution(story, pipeline, details)
     build_section5_mitre(story, pipeline)
     build_section6_injection(story, pipeline)
