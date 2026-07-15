@@ -7,12 +7,29 @@ Output: 02_os_structures.json
 """
 
 import sys
+import os
 import json
 import argparse
 import subprocess
 import re
 from pathlib import Path
 from typing import Dict, Any, List
+
+def _find_vol_binary() -> str:
+    """Find the bundled vol binary relative to this script, fallback to PATH."""
+    script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [
+        script_dir / "vol",
+        script_dir / "vol.exe",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    import shutil
+    found = shutil.which("vol")
+    return found or "vol"
+
+VOL_BIN = _find_vol_binary()
 
 
 def load_evidence(evidence_path: Path) -> Dict[str, Any]:
@@ -40,7 +57,7 @@ def parse_hex_address(addr_str: str) -> str:
 
 def run_volatility(memory_path: Path, plugin: str, extra_args: List[str] = None, timeout: int = 300) -> subprocess.CompletedProcess:
     """Standardized Volatility runner"""
-    cmd = ["/Users/ash/Library/Python/3.13/bin/vol", "-f", str(memory_path), plugin]
+    cmd = [VOL_BIN, "-f", str(memory_path), plugin]
     if extra_args:
         cmd.extend(extra_args)
 
