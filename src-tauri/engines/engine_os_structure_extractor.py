@@ -16,15 +16,22 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 def _find_vol_binary() -> str:
-    """Find the bundled vol binary relative to this script, fallback to PATH."""
-    script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
-    candidates = [
-        script_dir / "vol",
-        script_dir / "vol.exe",
-    ]
-    for c in candidates:
-        if c.exists():
-            return str(c)
+    """Find the bundled vol binary. Works both as a script and as a PyInstaller frozen binary."""
+    candidates_dirs = []
+    if getattr(sys, "frozen", False):
+        # running as compiled binary - vol sits next to the executable
+        candidates_dirs.append(Path(os.path.dirname(sys.executable)))
+    # also check relative to this source file (works when run as .py directly)
+    candidates_dirs.append(Path(os.path.dirname(os.path.abspath(__file__))))
+    # also check current working directory
+    candidates_dirs.append(Path(os.getcwd()))
+
+    for d in candidates_dirs:
+        for name in ("vol", "vol.exe"):
+            c = d / name
+            if c.exists():
+                return str(c)
+
     import shutil
     found = shutil.which("vol")
     return found or "vol"
