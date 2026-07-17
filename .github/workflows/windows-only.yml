@@ -17,19 +17,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install PyInstaller and build engine binary
+      - name: Install PyInstaller and build engine + vol binaries
         run: |
           cd src-tauri/engines
-          pip install pyinstaller reportlab pillow
+          pip install pyinstaller reportlab pillow volatility3
           pyinstaller --onefile memforensics_engine.py
           copy dist\memforensics_engine.exe .
+          echo "import sys" > vol_standalone.py
+          echo "from volatility3.cli import main" >> vol_standalone.py
+          echo "if __name__ == '__main__':" >> vol_standalone.py
+          echo "    sys.exit(main())" >> vol_standalone.py
+          pyinstaller --onefile --collect-all volatility3 vol_standalone.py
+          copy dist\vol_standalone.exe vol.exe
       - run: npm install
-      - run: npm run build
+      - run: npx tauri build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
-      - run: npx tauri build
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
