@@ -40,14 +40,14 @@ const defaultEngines = [1, 2, 3, 4, 5, 6, 7];
 
 export const useStore = create<AppStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       filePath: null,
       fileName: null,
       fileSize: null,
       fileMD5: null,
 
       selectedEngines: defaultEngines,
-      limit: 10,
+      limit: 0,
       verbose: false,
 
       activePipelineId: null,

@@ -98,6 +98,208 @@
   animation: fade-in-up 0.4s ease-out forwards;
 }
 
+/* ---------- Hacker-terminal console ---------- */
+@keyframes scan-sweep {
+  0% { transform: translateY(-120%); }
+  100% { transform: translateY(120%); }
+}
+@keyframes text-flicker {
+  0%, 96%, 100% { opacity: 1; }
+  97% { opacity: 0.82; }
+  98% { opacity: 1; }
+}
+.terminal-crt {
+  position: relative;
+  background: radial-gradient(120% 100% at 50% 0%, #0a0e14 0%, #05070a 100%);
+  overflow: hidden;
+}
+.terminal-crt::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.035) 0px,
+    rgba(255, 255, 255, 0.035) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+.terminal-crt::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; height: 90px;
+  background: linear-gradient(180deg, transparent, rgba(88, 166, 255, 0.07), transparent);
+  animation: scan-sweep 5s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+.terminal-text-glow {
+  text-shadow: 0 0 6px currentColor, 0 0 1px currentColor;
+  animation: text-flicker 6s linear infinite;
+}
+.terminal-dot {
+  width: 11px; height: 11px; border-radius: 9999px;
+}
+
+/* Animated "working..." ellipsis for the console heartbeat */
+@keyframes console-ellipsis {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75%, 100% { content: '...'; }
+}
+.console-ellipsis::after {
+  content: '...';
+  animation: console-ellipsis 1.2s steps(1, end) infinite;
+}
+
+/* Indeterminate sweep for the heartbeat progress sliver */
+@keyframes console-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.console-indeterminate {
+  animation: console-indeterminate 1.6s ease-in-out infinite;
+}
+
+/* ---------- Command buttons ---------- */
+
+/* Rotating conic border for the primary execute button */
+@keyframes border-orbit {
+  to { transform: rotate(1turn); }
+}
+.cmd-border {
+  position: relative;
+  isolation: isolate;
+}
+.cmd-border::before {
+  content: '';
+  position: absolute;
+  z-index: -2;
+  left: -60%; top: -180%;
+  width: 220%; height: 460%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    #58a6ff 40deg,
+    #bc8cff 70deg,
+    transparent 130deg,
+    transparent 360deg
+  );
+  animation: border-orbit 3.5s linear infinite;
+}
+.cmd-border::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 1.5px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #141a2b 0%, #0f1420 55%, #17102a 100%);
+}
+
+/* Diagonal sheen that sweeps across on hover */
+@keyframes cmd-sheen {
+  0% { transform: translateX(-120%) skewX(-20deg); }
+  100% { transform: translateX(320%) skewX(-20deg); }
+}
+.cmd-sheen {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 32%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+  pointer-events: none;
+  opacity: 0;
+}
+.group\/cmd:hover .cmd-sheen {
+  opacity: 1;
+  animation: cmd-sheen 0.9s ease-out;
+}
+
+/* Faint technical grid inside command surfaces */
+.cmd-grid {
+  background-image:
+    linear-gradient(rgba(88, 166, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(88, 166, 255, 0.07) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* Reticle corner brackets */
+.cmd-corner {
+  position: absolute;
+  width: 9px; height: 9px;
+  border-color: rgba(188, 140, 255, 0.6);
+  pointer-events: none;
+}
+
+/* ---------- Engine arm switch ---------- */
+@keyframes armed-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.arm-led {
+  animation: armed-pulse 1.8s ease-in-out infinite;
+}
+.arm-track {
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 0px,
+    rgba(255, 255, 255, 0.05) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
+/* Brief highlight when the console takes focus as output begins */
+@keyframes focus-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(88, 166, 255, 0); }
+  25%, 55% { box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.55), 0 0 34px rgba(88, 166, 255, 0.22); }
+}
+.console-focus-flash {
+  border-radius: 0.75rem;
+  animation: focus-flash 1.8s ease-out 1;
+}
+
+/* ---------- Glitch text ---------- */
+@keyframes glitch-1 {
+  0%, 92%, 100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  93% { clip-path: inset(20% 0 60% 0); transform: translate(-2px, 1px); }
+  94% { clip-path: inset(60% 0 10% 0); transform: translate(2px, -1px); }
+  95% { clip-path: inset(10% 0 80% 0); transform: translate(-1px, 0); }
+  96% { clip-path: inset(0 0 0 0); transform: translate(0); }
+}
+@keyframes glitch-2 {
+  0%, 92%, 100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  93% { clip-path: inset(70% 0 5% 0); transform: translate(2px, 0); }
+  94% { clip-path: inset(5% 0 70% 0); transform: translate(-2px, 1px); }
+  95% { clip-path: inset(40% 0 30% 0); transform: translate(1px, -1px); }
+  96% { clip-path: inset(0 0 0 0); transform: translate(0); }
+}
+.glitch-text {
+  position: relative;
+  display: inline-block;
+}
+.glitch-text::before,
+.glitch-text::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  background: inherit;
+}
+.glitch-text::before {
+  color: #f85149;
+  animation: glitch-1 4s infinite linear;
+  z-index: -1;
+}
+.glitch-text::after {
+  color: #58a6ff;
+  animation: glitch-2 4s infinite linear;
+  z-index: -1;
+}
+
 /* Upload zone border animation */
 .upload-border-pulse {
   animation: border-pulse 2s ease-in-out infinite;

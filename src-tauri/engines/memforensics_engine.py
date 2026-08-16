@@ -1,5 +1,14 @@
 import sys
 
+# The desktop app reads our stdout through a pipe, and Python block-buffers a
+# pipe by default — progress lines would only surface once the buffer filled or
+# the engine exited, making long stages look frozen. Flush per line instead.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except AttributeError:  # pragma: no cover - Python < 3.7
+    pass
+
 from engine_memory_acquisition import main as engine1
 from engine_os_structure_extractor import main as engine2
 from engine_private_exec_memory_analyzer import main as engine3

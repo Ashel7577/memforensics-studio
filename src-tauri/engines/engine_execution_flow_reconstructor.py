@@ -22,7 +22,12 @@ def load_execution_evidence(evidence_path: Path) -> List[Dict[str, Any]]:
 
     events = data.get("execution_events", [])
     if len(events) == 0:
-        raise ValueError("No execution evidence found")
+        # Zero proven executions is a legitimate result (e.g. resident-memory-only
+        # malware with no thread-start/VAD overlap), not a failure. Aborting here
+        # left a STALE 05_execution_timeline.json on disk from a prior run, which
+        # E6 then silently loaded as if it were current. Always write a fresh,
+        # empty-but-current timeline instead.
+        print("⚠️  No execution evidence found — writing empty (but current) timeline", file=sys.stderr)
 
     return events
 
@@ -84,6 +89,10 @@ def enrich_timeline_events(events: List[Dict[str, Any]], pid_lookup: Dict[int, D
             event["execution_role"] = classify_execution_role(event, pid_data)
             
             enriched_count += 1
+        else:
+            # Default role for events with unknown PIDs
+            if "execution_role" not in event:
+                event["execution_role"] = "unknown"
     
     print(f"  ✓ Enriched {enriched_count}/{len(events)} events with OS structure data")
     return events
@@ -102,9 +111,12 @@ def classify_execution_role(event: Dict[str, Any], pid_data: Dict[str, Any]) -> 
     if cmd_analysis.get("has_rundll32") and cmd_analysis.get("has_remote_dll"):
         return "initial_staging"
 
-    # PID 804 (lsass.exe) often the injection source due to high handle count
+    # High cross-process handle count on a process (Process/Thread handles into
+    # other PIDs) is the actual signal for an injection source — not a fixed
+    # PID allowlist, which would never fire on any dump other than the one
+    # this threshold was originally tuned against.
     handles = pid_data.get("handle_analysis", {})
-    if handles.get("cross_process_handle_count", 0) > 10 and pid in [804, 784, 716]:
+    if handles.get("cross_process_handle_count", 0) > 10:
         return "injection_source"
 
     # Any other PID with injected memory is a target
@@ -135,6 +147,51 @@ def reconstruct_timeline(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted_events
 
 
+def detect_bursts(timeline: List[Dict[str, Any]], window_seconds: float = 0.2,
+                   min_burst_size: int = 3) -> Dict[str, Any]:
+    """
+    Flag temporal bursts: N+ events on the same PID within a short window.
+    A pile of thread creations on one process in a fraction of a second is a
+    strong injection signal almost never seen in normal process behavior.
+    """
+    by_pid: Dict[int, List[Dict[str, Any]]] = {}
+    for event in timeline:
+        pid = event.get("pid")
+        by_pid.setdefault(pid, []).append(event)
+
+    bursts = []
+    for pid, events in by_pid.items():
+        times = sorted(parse_timestamp(e.get("create_time", "")) for e in events)
+        if len(times) < min_burst_size:
+            continue
+        i = 0
+        while i < len(times):
+            j = i
+            while j + 1 < len(times) and times[j + 1] - times[i] <= window_seconds:
+                j += 1
+            cluster_size = j - i + 1
+            if cluster_size >= min_burst_size:
+                bursts.append({
+                    "pid": pid,
+                    "event_count": cluster_size,
+                    "window_seconds": window_seconds,
+                    "start_time": times[i],
+                    "end_time": times[j],
+                })
+            i = j + 1
+
+    for event in timeline:
+        event["burst_flagged"] = False
+    for b in bursts:
+        for event in timeline:
+            if event.get("pid") == b["pid"]:
+                t = parse_timestamp(event.get("create_time", ""))
+                if b["start_time"] <= t <= b["end_time"]:
+                    event["burst_flagged"] = True
+
+    return {"bursts_detected": len(bursts), "bursts": bursts}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Engine 5: Execution Timeline")
     parser.add_argument("execution_evidence", help="04_execution_evidence.json")
@@ -151,7 +208,7 @@ def main():
         events = load_execution_evidence(Path(args.execution_evidence))
         print(f"📊 Loaded {len(events)} execution events")
 
-        # NEW: Enrich with OS structure data if available
+        # NEW: Merge process creation events from OS structures into timeline
         if args.os_structures:
             os_path = Path(args.os_structures)
             if os_path.exists():
@@ -160,15 +217,42 @@ def main():
                 pid_lookup = build_pid_lookup(os_data)
                 events = enrich_timeline_events(events, pid_lookup)
 
+                # Merge process creation/exit events into timeline
+                print("  🔄 Merging process creation events into timeline...")
+                pid_set = set(p.get("pid") for p in os_data.get("processes", []))
+                for proc in os_data.get("processes", []):
+                    proc_event = {
+                        "event_type": "process_creation",
+                        "pid": proc.get("pid"),
+                        "process_image": proc.get("image_name", "Unknown"),
+                        "create_time": proc.get("create_time", ""),
+                        "ppid": proc.get("ppid"),
+                        "parent_process": proc.get("parent_image_name", "UNKNOWN"),
+                        "command_line": proc.get("command_line", "N/A"),
+                        "username": proc.get("username", ""),
+                        "execution_role": "process_lifecycle",
+                    }
+                    # Orphan detection
+                    ppid = proc.get("ppid", 0)
+                    if ppid and ppid not in pid_set:
+                        proc_event["orphan_parent"] = True
+                        proc_event["orphan_note"] = f"Parent PID {ppid} not in process list (exited before capture)"
+                    events.append(proc_event)
+                print(f"  ✓ Added {len(os_data.get('processes', []))} process creation events")
+
         print(f"📊 Sorting {len(events)} execution events...")
 
         timeline = reconstruct_timeline(events)
+
+        burst_analysis = detect_bursts(timeline)
+        print(f"💥 Burst analysis: {burst_analysis['bursts_detected']} burst(s) detected")
 
         output = {
             "engine_id": "engine_execution_flow_reconstructor",
             "execution_timeline": timeline,
             "timeline_length": len(timeline),
             "sort_criteria": "thread_create_time (primary), allocation_sequence (secondary)",
+            "burst_analysis": burst_analysis,
             # NEW: Role summary
             "role_summary": {
                 "initial_staging": len([e for e in timeline if e.get("execution_role") == "initial_staging"]),

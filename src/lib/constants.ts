@@ -52,4 +52,4 @@ export const ENGINES: EngineConfig[] = [
   },
 ];
 
-export const JSON_ANALYZER_URL = 'https://memforensics.netlify.app';
+export const JSON_ANALYZER_URL = 'https://memforensics-dashboard.pages.dev';

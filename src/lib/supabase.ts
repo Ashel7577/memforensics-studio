@@ -7,15 +7,40 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn("Supabase env vars are missing. Auth will not work until VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in .env");
 }
 
-export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "");
+export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "", {
+  auth: {
+    /* PKCE is what allows the code returned to the loopback listener to be
+     * exchanged for a session inside the app. */
+    flowType: "pkce",
+    /* The desktop app is never navigated to the callback URL itself, so there
+     * is nothing in the address bar to detect. */
+    detectSessionInUrl: false,
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
 
-export async function signInWithGoogle() {
+/**
+ * Begin Google sign-in.
+ *
+ * On desktop the provider URL is returned rather than followed: Google rejects
+ * OAuth attempts from embedded webviews, so the caller opens it in the user's
+ * real browser and waits for the loopback listener to hand back a code.
+ */
+export async function signInWithGoogle(redirectTo: string) {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: window.location.origin },
+    options: { redirectTo, skipBrowserRedirect: true },
   });
   if (error) throw error;
-  return data;
+  if (!data?.url) throw new Error("Supabase did not return an authorization URL");
+  return data.url;
+}
+
+/** Exchange the authorization code from the loopback listener for a session. */
+export async function completeSignIn(code: string) {
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) throw error;
 }
 
 export async function getSession() {

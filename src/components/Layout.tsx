@@ -3,7 +3,7 @@ import Navbar from './Navbar';
 
 export default function Layout() {
   return (
-    <div className="min-h-screen bg-dfir text-primary">
+    <div className="min-h-screen text-primary">
       <Navbar />
       <main>
         <Outlet />

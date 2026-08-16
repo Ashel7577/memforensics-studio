@@ -94,20 +94,49 @@ export default function EngineCard({ engine, selected, onToggle }: Props) {
             <span className="text-blue bg-blue/5 px-1.5 py-0.5 rounded break-all">{engine.output}</span>
           </div>
         </div>
-        <div className="shrink-0 mt-1 relative z-10">
+        {/* Arm switch — reads as instrument hardware rather than an OS toggle */}
+        <div className="shrink-0 mt-0.5 relative z-10 flex flex-col items-end gap-1">
           <div
-            className={`w-11 h-6 rounded-full border transition-all duration-300 flex items-center px-0.5 ${
-              selected
-                ? 'bg-blue border-blue toggle-glow'
-                : 'bg-cardalt border-border'
+            role="switch"
+            aria-checked={selected}
+            aria-label={`${engine.name} — ${selected ? 'armed' : 'offline'}`}
+            className={`arm-track relative w-[52px] h-[22px] rounded-[5px] border transition-all duration-300 flex items-center px-[3px] ${
+              selected ? 'bg-black/40' : 'bg-black/30 border-border'
             }`}
+            style={{
+              borderColor: selected ? borderColor : undefined,
+              boxShadow: selected ? `0 0 12px ${borderColor}55, inset 0 0 8px ${borderColor}22` : undefined,
+            }}
           >
+            {/* notch marks on the track */}
+            <span className="absolute inset-y-[5px] left-1/2 w-px bg-white/10" aria-hidden="true" />
             <div
-              className={`w-5 h-5 rounded-full bg-primary transition-all duration-300 shadow-sm ${
-                selected ? 'translate-x-5' : 'translate-x-0'
+              className={`relative w-[22px] h-[15px] rounded-[3px] transition-transform duration-300 ease-out flex items-center justify-center gap-[2px] ${
+                selected ? 'translate-x-[25px]' : 'translate-x-0'
               }`}
-            />
+              style={{
+                background: selected ? borderColor : '#30363d',
+                boxShadow: selected ? `0 0 10px ${borderColor}` : 'none',
+              }}
+            >
+              {/* grip lines on the thumb */}
+              <span className="w-px h-[7px] bg-black/40" />
+              <span className="w-px h-[7px] bg-black/40" />
+              <span className="w-px h-[7px] bg-black/40" />
+            </div>
           </div>
+          <span
+            className={`flex items-center gap-1 text-[8px] font-mono uppercase tracking-[0.16em] transition-colors ${
+              selected ? '' : 'text-muted/60'
+            }`}
+            style={{ color: selected ? borderColor : undefined }}
+          >
+            <span
+              className={`w-1 h-1 rounded-full ${selected ? 'arm-led' : ''}`}
+              style={{ background: selected ? borderColor : '#484f58' }}
+            />
+            {selected ? 'Armed' : 'Offline'}
+          </span>
         </div>
       </div>
 

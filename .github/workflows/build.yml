@@ -20,13 +20,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install PyInstaller and build engine binary
+      - name: Install PyInstaller and build engine binaries
         run: |
           pip install pyinstaller reportlab volatility3
           cd src-tauri/engines
-          pyinstaller --onefile --name memforensics_engine orchestrator.py
+          pyinstaller --noconfirm memforensics_engine.spec
           cp dist/memforensics_engine ./memforensics_engine
           chmod +x ./memforensics_engine
+          # Standalone Volatility. The engines shell out to `vol`, so without
+          # this the app only works on machines that already have volatility3
+          # installed — which is not true of anyone we ship to.
+          cd vol_bundle
+          pyinstaller --noconfirm vol_standalone.spec
+          cp dist/vol_standalone ../vol
+          chmod +x ../vol
+      - name: Verify bundled binaries
+        run: |
+          test -x src-tauri/engines/memforensics_engine
+          test -x src-tauri/engines/vol
+          src-tauri/engines/vol --help > /dev/null
+          echo "engine + vol OK"
       - run: npm install
       - run: npm run build
         env:
@@ -62,12 +75,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install PyInstaller and build engine binary
+      - name: Install PyInstaller and build engine binaries
         run: |
           pip install pyinstaller reportlab volatility3
           cd src-tauri/engines
-          pyinstaller --onefile --name memforensics_engine orchestrator.py
+          pyinstaller --noconfirm memforensics_engine.spec
           copy dist\memforensics_engine.exe .\memforensics_engine.exe
+          cd vol_bundle
+          pyinstaller --noconfirm vol_standalone.spec
+          copy dist\vol_standalone.exe ..\vol.exe
+      - name: Verify bundled binaries
+        shell: pwsh
+        run: |
+          if (-not (Test-Path src-tauri\engines\memforensics_engine.exe)) { throw "engine binary missing" }
+          if (-not (Test-Path src-tauri\engines\vol.exe)) { throw "vol.exe missing" }
+          src-tauri\engines\vol.exe --help | Out-Null
+          Write-Host "engine + vol OK"
       - run: npm install
       - run: npm run build
         env:

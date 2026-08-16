@@ -2,15 +2,19 @@
 """
 ENGINE 3: engine_private_exec_memory_analyzer
 Filter for private executable memory regions
-Input: 02_os_structures.json
+Input: 02_os_structures.json only — NO raw memory access. Byte-level
+analysis (entropy/PE/strings/XOR/RC4/RedLine-config) is computed once by
+Engine 2 and carried over here if present on a VAD's "region_analysis" field.
 Output: 03_private_exec_regions.json
 """
 
 import json
 import sys
+import os
+import re
 import argparse
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 def load_os_structures(structures_path: Path) -> Dict[str, Any]:
     """Load and validate Engine 2 output"""
@@ -47,9 +51,10 @@ def is_private_exec_region(vad: Dict[str, Any]) -> bool:
     if not (4096 <= size <= 256 * 1024 * 1024):
         return False
     
-    # Explicit exclusions
+    # Explicit exclusions — NOTE: CLR/.NET NOT excluded because .NET malware
+    # (e.g., RedLine Stealer) runs in CLR regions and must be analyzed
     excluded_protections = [
-        "GUARD", "JIT", "CLR", "WOW64"
+        "GUARD", "WOW64"
     ]
     for excl in excluded_protections:
         if excl in protection:
@@ -58,7 +63,9 @@ def is_private_exec_region(vad: Dict[str, Any]) -> bool:
     return True
 
 def analyze_regions(structures: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract only valid private executable regions"""
+    """Extract only valid private executable regions. Byte-level analysis
+    (entropy/PE/strings/XOR/RC4/RedLine-config) is computed by Engine 2 and
+    carried over here if present — Engine 3 never touches raw memory."""
     private_exec_regions = []
     
     for proc in structures["processes"]:
@@ -76,6 +83,8 @@ def analyze_regions(structures: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "vad_index": i,
                     "vad_type": vad.get("tag", vad.get("type", "Private"))
                 }
+                if vad.get("region_analysis"):
+                    region["region_analysis"] = vad["region_analysis"]
                 private_exec_regions.append(region)
     
     return private_exec_regions
@@ -97,8 +106,14 @@ def main():
         structures = load_os_structures(structures_path)
         print(f"📊 Analyzing {len(structures['processes'])} processes...")
         
-        # Filter regions
+        # Filter regions (Engine 2 has already attached region_analysis where
+        # applicable — Engine 3 is a pure JSON→JSON transform, no raw memory
+        # access, per pipeline architecture: memory-file access is Engine 2
+        # only.)
         regions = analyze_regions(structures)
+        analyzed_count = sum(1 for r in regions if "region_analysis" in r)
+        if regions:
+            print(f"✓ {analyzed_count}/{len(regions)} region(s) carry byte-level analysis from Engine 2")
         
         output = {
             "engine_id": "engine_private_exec_memory_analyzer",
@@ -124,4 +139,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

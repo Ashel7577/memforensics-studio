@@ -4,10 +4,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Copy, ArrowLeft, FileJson, FileText, Download, FileCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { useStore } from '../store';
 import StatusBadge from '../components/StatusBadge';
 import EngineStepper from '../components/EngineStepper';
 import LiveConsole from '../components/LiveConsole';
+import PipelineGraph from '../components/PipelineGraph';
+import ThreatFeed from '../components/ThreatFeed';
 import type { LogLine, EngineProgress, Artifact } from '../types';
 
 function formatDuration(seconds: number): string {
@@ -94,9 +95,50 @@ export default function Pipeline() {
 
   const failedEngines = engines.filter(e => e.status === 'failed');
 
+  const runningEngine = engines.find(e => e.status === 'running');
+
+  /* The moment the first engine output arrives, bring the live console into
+   * view so attention lands where the action is. This fires once per run —
+   * after that the operator is free to scroll wherever they like without the
+   * page pulling itself back. */
+  const consoleRef = useRef<HTMLDivElement>(null);
+  const focusedConsoleRef = useRef(false);
+  const [consoleFlash, setConsoleFlash] = useState(false);
+  useEffect(() => {
+    if (focusedConsoleRef.current || logs.length === 0) return;
+    if (!consoleRef.current) return;
+    focusedConsoleRef.current = true;
+    const t = setTimeout(() => {
+      consoleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setConsoleFlash(true);
+    }, 300);
+    const clear = setTimeout(() => setConsoleFlash(false), 2400);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(clear);
+    };
+  }, [logs.length]);
+
+  /* When the run finishes, walk the viewport down to the artifacts on its own
+   * so the operator never has to reach for the scrollbar mid-demonstration. */
+  const artifactsRef = useRef<HTMLDivElement>(null);
+  const scrolledToArtifactsRef = useRef(false);
+  useEffect(() => {
+    if (status !== 'done' || scrolledToArtifactsRef.current) return;
+    if (!artifactsRef.current) return;
+    scrolledToArtifactsRef.current = true;
+    const t = setTimeout(() => {
+      artifactsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 900);
+    return () => clearTimeout(t);
+  }, [status, artifacts.length]);
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="relative max-w-6xl mx-auto px-4 py-6 space-y-6">
+      {status === 'running' && (
+        <div className="pointer-events-none fixed inset-0 -z-10 bg-hex-pattern opacity-30" />
+      )}
+      <div className="flex items-center justify-between animate-fade-in-up" style={{ opacity: 0 }}>
         <Link to="/" className="flex items-center gap-1.5 text-muted text-sm hover:text-primary transition-colors">
           <ArrowLeft className="w-4 h-4" />
           Back to Dashboard
@@ -114,13 +156,42 @@ export default function Pipeline() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-2">
-          <h2 className="text-sm font-semibold text-primary uppercase tracking-wide mb-3">Pipeline Progress</h2>
-          <EngineStepper engines={engines} />
+      <div className="rounded-xl border border-border bg-card/60 overflow-hidden animate-fade-in-up" style={{ opacity: 0, animationDelay: '80ms' }}>
+        <div className="flex items-center justify-between px-4 pt-3">
+          <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted">Evidence Processing Graph</span>
+          {runningEngine && (
+            <span className="text-[10px] font-mono text-blue">
+              STAGE {String(runningEngine.engineNum).padStart(2, '0')}/07 &middot; {runningEngine.percent}%
+            </span>
+          )}
         </div>
-        <div className="lg:col-span-3">
-          <LiveConsole logs={logs} />
+        <PipelineGraph engines={engines} activity={logs.length} />
+      </div>
+
+      {status === 'running' && runningEngine && (
+        <div className="rounded-xl border border-blue/25 bg-blue/5 px-4 py-3 flex items-center gap-3 animate-fade-in-up" style={{ opacity: 0 }}>
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue" />
+          </span>
+          <span className="text-sm text-primary">
+            <span className="text-blue font-semibold">{runningEngine.name}</span> is running
+            {runningEngine.message ? <> &mdash; <span className="font-mono text-xs text-muted">{runningEngine.message}</span></> : '.'}
+          </span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+        <div className="lg:col-span-2 space-y-4 lg:sticky lg:top-4">
+          <h2 className="text-sm font-semibold text-primary uppercase tracking-wide mb-3">Stage Detail</h2>
+          <EngineStepper engines={engines} />
+          <ThreatFeed logs={logs} />
+        </div>
+        <div
+          ref={consoleRef}
+          className={`lg:col-span-3 scroll-mt-4 ${consoleFlash ? 'console-focus-flash' : ''}`}
+        >
+          <LiveConsole logs={logs} activeEngine={runningEngine} status={status} />
         </div>
       </div>
 
@@ -134,7 +205,7 @@ export default function Pipeline() {
       )}
 
       {artifacts.length > 0 && (
-        <div>
+        <div ref={artifactsRef} className="scroll-mt-6">
           <h2 className="text-sm font-semibold text-primary uppercase tracking-wide mb-3">Output Artifacts</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {artifacts.map(artifact => (

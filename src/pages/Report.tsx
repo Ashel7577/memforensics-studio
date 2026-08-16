@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { Download, ExternalLink, ArrowLeft, FileText, FileJson, Globe, X } from 'lucide-react';
+import { Download, ArrowLeft, FileText, FileJson, Globe, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { JSON_ANALYZER_URL } from '../lib/constants';
 

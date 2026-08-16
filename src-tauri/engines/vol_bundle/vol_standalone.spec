@@ -1,12 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+
+datas = []
+binaries = []
+hiddenimports = []
+tmp_ret = collect_all('volatility3')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['memforensics_engine.py'],
+    ['vol_standalone.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -21,11 +28,8 @@ exe = EXE(
     a.scripts,
     a.binaries,
     a.datas,
-    # 'u' = unbuffered stdio. The desktop app reads engine output through a
-    # pipe; without this the frozen interpreter block-buffers and progress
-    # lines only appear when the stage exits, making long stages look hung.
-    [('u', None, 'OPTION')],
-    name='memforensics_engine',
+    [],
+    name='vol_standalone',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

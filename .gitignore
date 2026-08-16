@@ -21,3 +21,15 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# PyInstaller output — CI rebuilds these from source on every run. Committing
+# them is how a stale engine binary once shipped over fresh Python sources.
+src-tauri/engines/build/
+src-tauri/engines/dist/
+src-tauri/engines/memforensics_engine
+src-tauri/engines/memforensics_engine.exe
+src-tauri/engines/vol
+src-tauri/engines/vol.exe
+src-tauri/engines/__pycache__/
+src-tauri/engines/vol_bundle/build/
+src-tauri/engines/vol_bundle/dist/
