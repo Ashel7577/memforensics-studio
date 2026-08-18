@@ -34,6 +34,11 @@ jobs:
           pyinstaller --noconfirm vol_standalone.spec
           cp dist/vol_standalone ../vol
           chmod +x ../vol
+          # PyInstaller's working trees would otherwise ride along inside the
+          # .app, since tauri.conf.json bundles `engines/*` as resources.
+          rm -rf build dist
+          cd ..
+          rm -rf build dist __pycache__
       - name: Verify bundled binaries
         run: |
           test -x src-tauri/engines/memforensics_engine
@@ -84,6 +89,17 @@ jobs:
           cd vol_bundle
           pyinstaller --noconfirm vol_standalone.spec
           copy dist\vol_standalone.exe ..\vol.exe
+      - name: Drop PyInstaller intermediates before bundling
+        shell: pwsh
+        run: |
+          # `engines/*` is bundled as resources, so PyInstaller's build/ and
+          # dist/ trees would otherwise ride along inside the installer.
+          foreach ($d in @(
+              'src-tauri\engines\build', 'src-tauri\engines\dist',
+              'src-tauri\engines\__pycache__',
+              'src-tauri\engines\vol_bundle\build', 'src-tauri\engines\vol_bundle\dist')) {
+            if (Test-Path $d) { Remove-Item -Recurse -Force $d }
+          }
       - name: Verify bundled binaries
         shell: pwsh
         run: |

@@ -18,6 +18,16 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+# Volatility writes UTF-8, but subprocess text mode decodes with the locale
+# encoding — cp1252 on Windows — so a single non-ASCII byte in a process name or
+# file path raised UnicodeDecodeError and took the whole stage down. Decode
+# explicitly instead, and never let a stray byte abort a run. On Windows also
+# suppress the console window every child process would otherwise flash over the
+# app.
+VOL_RUN_KW: Dict[str, Any] = {"encoding": "utf-8", "errors": "replace"}
+if os.name == "nt":
+    VOL_RUN_KW["creationflags"] = subprocess.CREATE_NO_WINDOW
+
 
 def load_evidence(evidence_path: Path) -> Dict[str, Any]:
     """Load and validate Engine 1 output"""
@@ -89,7 +99,7 @@ def run_volatility(memory_path: Path, plugin: str, extra_args: List[str] = None,
     result = subprocess.run(
         cmd,
         capture_output=True,
-        text=True,
+        text=True, **VOL_RUN_KW,
         timeout=timeout
     )
     return result
@@ -553,7 +563,7 @@ def dump_and_analyze_region(memory_path: Path, pid: int, base_address: str,
     try:
         cmd = [VOL_BIN, "-f", str(memory_path), "-o", str(work_dir),
                "windows.vadinfo", "--pid", str(pid), "--dump"]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=180)
         if result.returncode != 0:
             return None
     except Exception:
@@ -860,7 +870,7 @@ def enrich_private_exec_vads_with_byte_analysis(memory_path: Path, processes: Li
             cmd = [VOL_BIN, "-f", str(memory_path), "-o", str(work_dir),
                    "windows.vadinfo", "--pid", str(pid), "--dump"]
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=180)
             except subprocess.TimeoutExpired:
                 print(f"    ⚠️  PID {pid}: vadinfo --dump timed out (180s) — skipping")
                 continue
@@ -994,7 +1004,7 @@ def dump_and_hash_process_image(memory_path, pid: int, work_dir: str) -> Optiona
     try:
         cmd = [VOL_BIN, "-f", str(memory_path), "-o", str(work_dir),
                "windows.dumpfiles", "--pid", str(pid)]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=180)
         # FIX: don't give up the moment returncode != 0. dumpfiles dumps
         # multiple file objects per process (the EXE plus every loaded
         # DLL) and can crash partway through — e.g. it successfully writes
@@ -1033,7 +1043,7 @@ def dump_and_hash_process_image(memory_path, pid: int, work_dir: str) -> Optiona
         try:
             cmd2 = [VOL_BIN, "-f", str(memory_path), "-o", str(work_dir),
                     "windows.memmap", "--pid", str(pid), "--dump"]
-            result2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=180)
+            result2 = subprocess.run(cmd2, capture_output=True, text=True, **VOL_RUN_KW, timeout=180)
         except Exception as e:
             print(f"    [memmap fallback] exception for PID {pid}: {e}")
             return None
@@ -1143,7 +1153,7 @@ def run_malfind_reference_scan(memory_path: Path) -> List[Dict[str, Any]]:
     try:
         result = subprocess.run(
             [VOL_BIN, "-f", str(memory_path), "windows.malfind"],
-            capture_output=True, text=True, timeout=300
+            capture_output=True, text=True, **VOL_RUN_KW, timeout=300
         )
         if result.returncode != 0:
             print(f"  ⚠️  [malfind reference scan] vol exited {result.returncode}: "

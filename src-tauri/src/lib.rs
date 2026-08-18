@@ -7,6 +7,21 @@ use std::net::TcpListener;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// Windows spawns a console window for every child process by default, so each
+/// engine stage — and the `start` shell used to open URLs — flashed a black box
+/// over the app. CREATE_NO_WINDOW suppresses it; a no-op everywhere else.
+fn quiet(cmd: &mut Command) -> &mut Command {
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EngineProgress {
     #[serde(rename = "engineNum")]
@@ -304,7 +319,7 @@ async fn start_pipeline(
                 &format!("[ENGINE {}] Starting {}...", engine_num, engine_names()[(engine_num-1) as usize]),
                 "info");
 
-            let mut child = match Command::new(&bin)
+            let mut child = match quiet(&mut Command::new(&bin))
                 .args(&args)
                 // Python block-buffers stdout when it is a pipe rather than a TTY, so
                 // progress lines sat in an 8KB buffer until the stage ended — long
@@ -536,14 +551,34 @@ async fn download_artifact(app: tauri::AppHandle, job_id: String, filename: Stri
             .map(|a| a.path.clone())
     };
     if let Some(path) = path {
-        Command::new("open").arg("--reveal").arg(&path).spawn().map_err(|e| e.to_string())?;
+        // `open` is macOS-only — on Windows this command silently failed to
+        // spawn, so "reveal artifact" did nothing at all there.
+        #[cfg(target_os = "macos")]
+        let mut cmd = { let mut c = Command::new("open"); c.args(["--reveal"]); c.arg(&path); c };
+        #[cfg(target_os = "windows")]
+        let mut cmd = { let mut c = Command::new("explorer"); c.arg(format!("/select,{}", path)); quiet(&mut c); c };
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut cmd = {
+            let parent = std::path::Path::new(&path).parent()
+                .map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
+            let mut c = Command::new("xdg-open"); c.arg(parent); c
+        };
+        cmd.spawn().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
 #[tauri::command]
 async fn open_file(path: String) -> Result<(), String> {
-    Command::new("open").arg(&path).spawn().map_err(|e| e.to_string())?;
+    // Same story as download_artifact: opening the generated PDF report only
+    // ever worked on macOS.
+    #[cfg(target_os = "macos")]
+    let mut cmd = { let mut c = Command::new("open"); c.arg(&path); c };
+    #[cfg(target_os = "windows")]
+    let mut cmd = { let mut c = Command::new("cmd"); c.args(["/C", "start", "", &path]); quiet(&mut c); c };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = { let mut c = Command::new("xdg-open"); c.arg(&path); c };
+    cmd.spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -731,7 +766,7 @@ async fn open_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut cmd = { let mut c = Command::new("open"); c.arg(&url); c };
     #[cfg(target_os = "windows")]
-    let mut cmd = { let mut c = Command::new("cmd"); c.args(["/C", "start", "", &url]); c };
+    let mut cmd = { let mut c = Command::new("cmd"); c.args(["/C", "start", "", &url]); quiet(&mut c); c };
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut cmd = { let mut c = Command::new("xdg-open"); c.arg(&url); c };
 
