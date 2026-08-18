@@ -1,10 +1,10 @@
 [package]
 name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.1.3"
+description = "Memory-Only Malware Forensic Reconstruction Tool"
+authors = ["Group Q"]
 license = ""
-repository = ""
+repository = "https://github.com/Ashel7577/memforensics-studio"
 edition = "2021"
 rust-version = "1.77.2"
 

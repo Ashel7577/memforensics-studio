@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { History, ExternalLink } from 'lucide-react';
+import { getVersion } from '@tauri-apps/api/app';
 import { useStore } from '../store';
 import { JSON_ANALYZER_URL } from '../lib/constants';
 import { invoke } from '@tauri-apps/api/core';
@@ -7,6 +9,12 @@ import { invoke } from '@tauri-apps/api/core';
 export default function Navbar() {
   const { fileName } = useStore();
   const location = useLocation();
+  /* Read the real bundle version rather than hard-coding one — a stale badge in
+   * the chrome is worse than no badge at all. */
+  const [version, setVersion] = useState('');
+  useEffect(() => {
+    getVersion().then((v) => setVersion(v)).catch(() => setVersion(''));
+  }, []);
 
   const openAnalyzer = () => {
     invoke('open_url', { url: JSON_ANALYZER_URL });
@@ -19,7 +27,7 @@ export default function Navbar() {
           MemForensics Studio
         </span>
         <span className="text-[10px] text-muted bg-cardalt px-1.5 py-0.5 rounded font-mono">
-          v1.0
+          {version ? `v${version}` : '—'}
         </span>
       </Link>
 

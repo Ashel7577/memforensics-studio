@@ -55,6 +55,17 @@ pub struct LogLine {
     pub level: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PipelineRun {
+    pub id: String,
+    pub filename: String,
+    pub engines: Vec<u8>,
+    pub status: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: String,
+    pub duration: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct PipelineState {
     pub status: String,
@@ -117,6 +128,32 @@ async fn open_file_dialog(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
+/// Path of the run-metadata sidecar inside a job directory.
+///
+/// History has to survive a restart, and the job registry only lives in memory,
+/// so every run records itself next to its artifacts. `get_history` rebuilds the
+/// list by reading these back.
+fn meta_path(output_dir: &str) -> std::path::PathBuf {
+    std::path::Path::new(output_dir).join("job_meta.json")
+}
+
+fn write_run_meta(output_dir: &str, run: &PipelineRun) {
+    if let Ok(json) = serde_json::to_string_pretty(run) {
+        let _ = std::fs::write(meta_path(output_dir), json);
+    }
+}
+
+fn update_run_meta(output_dir: &str, status: &str, duration: u64) {
+    let path = meta_path(output_dir);
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(mut run) = serde_json::from_str::<PipelineRun>(&content) {
+            run.status = status.to_string();
+            run.duration = duration;
+            write_run_meta(output_dir, &run);
+        }
+    }
+}
+
 #[tauri::command]
 async fn start_pipeline(
     app: tauri::AppHandle,
@@ -167,6 +204,19 @@ async fn start_pipeline(
         });
     }
 
+    let filename = std::path::Path::new(&file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| file_path.clone());
+    write_run_meta(&output_dir_str, &PipelineRun {
+        id: job_id.clone(),
+        filename,
+        engines: engines.clone(),
+        status: "running".to_string(),
+        started_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+        duration: 0,
+    });
+
     let job_id_clone = job_id.clone();
     let pipelines = state.pipelines.clone();
     let engines_clone = engines.clone();
@@ -176,6 +226,7 @@ async fn start_pipeline(
         let o = output_dir_str.clone();
         let d = file_path.clone();
 
+        let started = std::time::Instant::now();
         let mut log_counter = 0u64;
 
         let mut store_log = |pipelines: &Arc<Mutex<HashMap<String, PipelineState>>>,
@@ -502,6 +553,7 @@ async fn start_pipeline(
         }
 
         let final_status = if pipeline_failed { "failed" } else { "done" };
+        update_run_meta(&o, final_status, started.elapsed().as_secs());
         let mut map = pipelines.lock().unwrap();
         if let Some(pipeline) = map.get_mut(&job_id_clone) {
             pipeline.status = final_status.to_string();
@@ -556,7 +608,15 @@ async fn download_artifact(app: tauri::AppHandle, job_id: String, filename: Stri
         #[cfg(target_os = "macos")]
         let mut cmd = { let mut c = Command::new("open"); c.args(["--reveal"]); c.arg(&path); c };
         #[cfg(target_os = "windows")]
-        let mut cmd = { let mut c = Command::new("explorer"); c.arg(format!("/select,{}", path)); quiet(&mut c); c };
+        let mut cmd = {
+            // Explorer only understands backslash-separated paths here; the job
+            // paths are built with forward slashes and `/select,` silently opens
+            // the user's Documents folder instead unless they are normalised.
+            let mut c = Command::new("explorer");
+            c.arg(format!("/select,{}", path.replace('/', "\\")));
+            quiet(&mut c);
+            c
+        };
         #[cfg(all(unix, not(target_os = "macos")))]
         let mut cmd = {
             let parent = std::path::Path::new(&path).parent()
@@ -579,6 +639,76 @@ async fn open_file(path: String) -> Result<(), String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut cmd = { let mut c = Command::new("xdg-open"); c.arg(&path); c };
     cmd.spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Past runs, newest first.
+///
+/// Rebuilt from the `job_meta.json` sidecar each run writes into its own output
+/// directory, so history survives a restart even though the job registry itself
+/// is in-memory only. A directory left behind by a run that was killed mid-flight
+/// still reads as "running"; it is reported as failed rather than shown as if it
+/// were still live, since nothing is driving it any more.
+#[tauri::command]
+async fn get_history(app: tauri::AppHandle) -> Result<Vec<PipelineRun>, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let live: Vec<String> = {
+        let state = app.state::<AppState>();
+        let map = state.pipelines.lock().unwrap();
+        map.iter()
+            .filter(|(_, p)| p.status == "running")
+            .map(|(id, _)| id.clone())
+            .collect()
+    };
+
+    let mut runs: Vec<PipelineRun> = vec![];
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let content = match std::fs::read_to_string(entry.path().join("job_meta.json")) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if let Ok(mut run) = serde_json::from_str::<PipelineRun>(&content) {
+            if run.status == "running" && !live.contains(&run.id) {
+                run.status = "failed".to_string();
+            }
+            runs.push(run);
+        }
+    }
+
+    // Job ids are `job_<unix-millis>`, so a plain descending sort is chronological.
+    runs.sort_by(|a, b| b.id.cmp(&a.id));
+    Ok(runs)
+}
+
+/// Delete a run: its artifacts, its metadata and its registry entry.
+#[tauri::command]
+async fn delete_job(app: tauri::AppHandle, job_id: String) -> Result<(), String> {
+    // Never let a caller-supplied id escape the app data directory.
+    if job_id.is_empty()
+        || !job_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err("Invalid job id".to_string());
+    }
+
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join(&job_id);
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+
+    let state = app.state::<AppState>();
+    let mut map = state.pipelines.lock().unwrap();
+    map.remove(&job_id);
     Ok(())
 }
 
@@ -625,6 +755,8 @@ pub fn run() {
             download_artifact,
             open_file,
             get_output_dir,
+            get_history,
+            delete_job,
             get_report_pdf_path,
             get_report_metadata,
             read_file,

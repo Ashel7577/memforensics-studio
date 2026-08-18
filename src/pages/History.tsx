@@ -14,7 +14,13 @@ function formatDuration(seconds: number): string {
 }
 
 export default function History() {
-  const store = useStore();
+  /* Selected individually rather than taking the whole store: a bare
+   * useStore() returns a fresh snapshot on every state change, so depending on
+   * it in the load effect below would re-fire the fetch each time the fetch
+   * itself wrote the results back — an endless reload loop. Action references
+   * are stable. */
+  const history = useStore((s) => s.history);
+  const loadHistory = useStore((s) => s.loadHistory);
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
 
@@ -26,7 +32,7 @@ export default function History() {
     const load = async () => {
       try {
         const data = await invoke<PipelineRun[]>('get_history');
-        store.loadHistory(data);
+        loadHistory(data);
       } catch (err: any) {
         toast.error(err?.message || 'Failed to load history');
       } finally {
@@ -34,19 +40,17 @@ export default function History() {
       }
     };
     load();
-  }, [store]);
+  }, [loadHistory]);
 
   const handleDelete = async (jobId: string) => {
     try {
       await invoke('delete_job', { jobId });
-      store.loadHistory(store.history.filter((h) => h.id !== jobId));
+      loadHistory(history.filter((h) => h.id !== jobId));
       toast.success('Job deleted');
     } catch (err: any) {
       toast.error(err?.message || 'Delete failed');
     }
   };
-
-  const history = store.history;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">

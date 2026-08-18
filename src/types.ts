@@ -30,7 +30,7 @@ export interface PipelineRun {
   id: string;
   filename: string;
   engines: number[];
-  status: 'done' | 'failed';
+  status: 'running' | 'done' | 'failed';
   startedAt: string;
   duration: number;
 }
