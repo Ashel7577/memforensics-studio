@@ -21,7 +21,7 @@ from typing import Dict, Any, List, Optional
 
 def load_evidence(evidence_path: Path) -> Dict[str, Any]:
     """Load and validate Engine 1 output"""
-    with open(evidence_path, 'r') as f:
+    with open(evidence_path, 'r', encoding='utf-8') as f:
         evidence = json.load(f)
 
     if not evidence.get("validated", False):
@@ -2369,7 +2369,7 @@ def main():
             raise ValueError("OS structures validation failed")
 
         # Save output
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(structures, f, indent=2)
 
         print("✅ ENGINE 2 COMPLETE")
@@ -2415,7 +2415,7 @@ def main():
                 "malfind_reference_hits": locals().get("malfind_reference_hits", []),
             }
             try:
-                with open(output_path, 'w') as f:
+                with open(output_path, 'w', encoding='utf-8') as f:
                     json.dump(partial_output, f, indent=2)
                 print(f"💾 Partial results saved to {output_path.absolute()} "
                       f"({len(processes)} process(es) gathered before interruption)",

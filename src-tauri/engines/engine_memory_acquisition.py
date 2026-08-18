@@ -158,13 +158,13 @@ def append_custody_transfer(evidence_json_path: Path, log_path: Path,
     bags, physical signatures, FRE 901/902 procedures) — it's the digital
     equivalent for a memory image's handling record within this pipeline.
     """
-    with open(evidence_json_path, 'r') as f:
+    with open(evidence_json_path, 'r', encoding='utf-8') as f:
         evidence = json.load(f)
     evidence_sha256 = evidence.get("image_sha256", "")
 
     log = []
     if log_path.exists():
-        with open(log_path, 'r') as f:
+        with open(log_path, 'r', encoding='utf-8') as f:
             log = json.load(f)
 
     prev_hash = log[-1]["entry_hash"] if log else "GENESIS"
@@ -181,7 +181,7 @@ def append_custody_transfer(evidence_json_path: Path, log_path: Path,
     entry["entry_hash"] = hashlib.sha256(entry_content.encode()).hexdigest()
 
     log.append(entry)
-    with open(log_path, 'w') as f:
+    with open(log_path, 'w', encoding='utf-8') as f:
         json.dump(log, f, indent=2)
 
     return entry
@@ -192,7 +192,7 @@ def verify_custody_chain(log_path: Path) -> Dict[str, Any]:
     if not log_path.exists():
         return {"valid": True, "entries": 0, "note": "No custody log exists yet."}
 
-    with open(log_path, 'r') as f:
+    with open(log_path, 'r', encoding='utf-8') as f:
         log = json.load(f)
 
     prev_hash = "GENESIS"
@@ -283,7 +283,7 @@ def main():
         evidence = create_evidence_record(memory_path, method)
 
         # Write output
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(evidence, f, indent=2)
 
         print(f"✅ ENGINE 1 COMPLETE")

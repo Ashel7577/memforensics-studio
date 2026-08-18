@@ -3,10 +3,15 @@ import sys
 # The desktop app reads our stdout through a pipe, and Python block-buffers a
 # pipe by default — progress lines would only surface once the buffer filled or
 # the engine exited, making long stages look frozen. Flush per line instead.
+#
+# The engines also print emoji status markers. On Windows the console/pipe
+# encoding defaults to cp1252, which cannot encode them and blows the engine up
+# with a UnicodeEncodeError before it does any work — so force UTF-8 and never
+# let an unencodable character abort a run.
 try:
-    sys.stdout.reconfigure(line_buffering=True)
-    sys.stderr.reconfigure(line_buffering=True)
-except AttributeError:  # pragma: no cover - Python < 3.7
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+except (AttributeError, ValueError):  # pragma: no cover - Python < 3.7
     pass
 
 from engine_memory_acquisition import main as engine1

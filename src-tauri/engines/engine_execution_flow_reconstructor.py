@@ -17,7 +17,7 @@ import re  # NEW import
 
 def load_execution_evidence(evidence_path: Path) -> List[Dict[str, Any]]:
     """Load Engine 4 output"""
-    with open(evidence_path, 'r') as f:
+    with open(evidence_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     events = data.get("execution_events", [])
@@ -34,7 +34,7 @@ def load_execution_evidence(evidence_path: Path) -> List[Dict[str, Any]]:
 
 def load_os_structures(os_structures_path: Path) -> Dict[str, Any]:
     """Load Engine 2 output for enrichment data (cmdlines, users, handles)"""
-    with open(os_structures_path, 'r') as f:
+    with open(os_structures_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 

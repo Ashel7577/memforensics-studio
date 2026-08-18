@@ -18,7 +18,7 @@ from typing import Dict, Any, List, Optional
 
 def load_os_structures(structures_path: Path) -> Dict[str, Any]:
     """Load and validate Engine 2 output"""
-    with open(structures_path, 'r') as f:
+    with open(structures_path, 'r', encoding='utf-8') as f:
         structures = json.load(f)
     
     processes = structures.get("processes", [])
@@ -126,7 +126,7 @@ def main():
         if len(regions) == 0:
             print("⚠️  No private executable regions found")
         
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output, f, indent=2)
         
         print(f"✅ ENGINE 3 COMPLETE")

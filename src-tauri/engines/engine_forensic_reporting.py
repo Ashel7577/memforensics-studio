@@ -297,7 +297,7 @@ def load_pipeline(paths: Dict[str, str]) -> Dict[str, Any]:
             data[key] = {}
             continue
         try:
-            with open(path, 'r') as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 data[key] = json.load(f)
             print(f"  [*] Loaded {key}: {os.path.basename(path)}")
         except Exception as e:
@@ -3795,11 +3795,11 @@ def generate_report(classification_path, timeline_path, output_path,
         return False
     
     print(f"[+] Loading classification data from: {classification_path}")
-    with open(classification_path, 'r') as f:
+    with open(classification_path, 'r', encoding='utf-8') as f:
         cls_data = json.load(f)
     
     print(f"[+] Loading timeline data from: {timeline_path}")
-    with open(timeline_path, 'r') as f:
+    with open(timeline_path, 'r', encoding='utf-8') as f:
         timeline = json.load(f)
 
     # os_structures is OPTIONAL and used only for SID-to-username resolution
@@ -3810,7 +3810,7 @@ def generate_report(classification_path, timeline_path, output_path,
     if os_structures_path and os.path.exists(os_structures_path):
         try:
             print(f"[+] Loading OS structures data from: {os_structures_path}")
-            with open(os_structures_path, 'r') as f:
+            with open(os_structures_path, 'r', encoding='utf-8') as f:
                 os_structures = json.load(f)
         except Exception as e:
             print(f"[!] Could not load OS structures data ({e}) — username resolution will show SID only")
@@ -3823,7 +3823,7 @@ def generate_report(classification_path, timeline_path, output_path,
     if memory_evidence_path and os.path.exists(memory_evidence_path):
         try:
             print(f"[+] Loading memory evidence data from: {memory_evidence_path}")
-            with open(memory_evidence_path, 'r') as f:
+            with open(memory_evidence_path, 'r', encoding='utf-8') as f:
                 mem_data = json.load(f)
             full_path = mem_data.get("memory_file")
             if full_path:
@@ -3838,7 +3838,7 @@ def generate_report(classification_path, timeline_path, output_path,
     if execution_evidence_path and os.path.exists(execution_evidence_path):
         try:
             print(f"[+] Loading execution evidence data from: {execution_evidence_path}")
-            with open(execution_evidence_path, 'r') as f:
+            with open(execution_evidence_path, 'r', encoding='utf-8') as f:
                 exec_evidence = json.load(f)
             injection_graph = exec_evidence.get("injection_graph")
         except Exception as e:
@@ -3851,7 +3851,7 @@ def generate_report(classification_path, timeline_path, output_path,
     if private_exec_regions_path and os.path.exists(private_exec_regions_path):
         try:
             print(f"[+] Loading private-exec region data from: {private_exec_regions_path}")
-            with open(private_exec_regions_path, 'r') as f:
+            with open(private_exec_regions_path, 'r', encoding='utf-8') as f:
                 private_exec_regions = json.load(f)
         except Exception as e:
             print(f"[!] Could not load private-exec region data ({e}) — hex dump section will be omitted")
@@ -3862,7 +3862,7 @@ def generate_report(classification_path, timeline_path, output_path,
     if compare_classification_path and os.path.exists(compare_classification_path):
         try:
             print(f"[+] Loading comparison dump classification from: {compare_classification_path}")
-            with open(compare_classification_path, 'r') as f:
+            with open(compare_classification_path, 'r', encoding='utf-8') as f:
                 compare_cls_data = json.load(f)
             compare = {
                 "classification": compare_cls_data,
@@ -4035,7 +4035,7 @@ def write_ioc_export(path, pipeline, summary, details):
             for c in cls.get("classifications", [])
         ],
     }
-    with open(path, "w") as f:
+    with open(path, "w", encoding='utf-8') as f:
         json.dump(export, f, indent=2)
 
 
@@ -4216,7 +4216,7 @@ def write_stix_export(path, pipeline, summary, details):
         "id": _stix_id("bundle", summary.get("memory_dump", "dump")),
         "objects": objects,
     }
-    with open(path, "w") as f:
+    with open(path, "w", encoding='utf-8') as f:
         json.dump(bundle, f, indent=2)
 
 
@@ -4259,7 +4259,7 @@ def write_ioc_csv_export(path, pipeline, summary, details):
             "source_dump": summary.get("memory_dump", "Unknown"),
         })
 
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=[
             "indicator_type", "value", "protocol", "confidence", "malware_family", "source_dump"
         ])

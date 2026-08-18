@@ -3102,13 +3102,13 @@ def main():
             os_file = None
 
     print(f"[*] Loading timeline: {args.timeline_file}")
-    with open(args.timeline_file, 'r') as f:
+    with open(args.timeline_file, 'r', encoding='utf-8') as f:
         timeline_data = json.load(f)
 
     regions_data = []
     if regions_file and os.path.exists(regions_file):
         print(f"[*] Loading regions: {regions_file}")
-        with open(regions_file, 'r') as f:
+        with open(regions_file, 'r', encoding='utf-8') as f:
             regions_data = json.load(f)
         if isinstance(regions_data, dict):
             regions_data = regions_data.get("regions", regions_data.get("private_exec_regions", []))
@@ -3118,7 +3118,7 @@ def main():
     os_structures_data = {"processes": [], "threads": [], "modules": [], "handles": []}
     if os_file and os.path.exists(os_file):
         print(f"[*] Loading OS structures: {os_file}")
-        with open(os_file, 'r') as f:
+        with open(os_file, 'r', encoding='utf-8') as f:
             os_structures_data = json.load(f)
     else:
         print("[!] WARNING: No OS structures provided. User attribution and C2 analysis disabled.")
@@ -3553,14 +3553,14 @@ def main():
     output["environment_variable_findings"] = build_envar_findings(os_structures_data)
 
     print(f"\n[*] Writing output to: {args.output}")
-    with open(args.output, 'w') as f:
+    with open(args.output, 'w', encoding='utf-8') as f:
         json.dump(output, f, indent=2, default=str)
 
     # Save YARA rule as a standalone file next to main output
     if yara_rule:
         yara_path = str(args.output).replace(".json", ".yar")
         try:
-            with open(yara_path, 'w') as yf:
+            with open(yara_path, 'w', encoding='utf-8') as yf:
                 yf.write(yara_rule)
             print(f"[+] YARA rule saved: {yara_path}")
         except Exception as _e:
@@ -3570,7 +3570,7 @@ def main():
     if detection_rules:
         rules_path = str(args.output).replace(".json", "_detection_rules.json")
         try:
-            with open(rules_path, 'w') as rf:
+            with open(rules_path, 'w', encoding='utf-8') as rf:
                 json.dump(detection_rules, rf, indent=2)
             print(f"[+] Detection rules saved: {rules_path}")
         except Exception as _e:

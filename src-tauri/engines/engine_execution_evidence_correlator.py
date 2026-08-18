@@ -17,10 +17,10 @@ import re
 
 def load_inputs(os_structures_path: Path, exec_regions_path: Path) -> tuple[Dict[str, Any], Dict[str, Any]]:
     """Load and validate inputs"""
-    with open(os_structures_path, 'r') as f:
+    with open(os_structures_path, 'r', encoding='utf-8') as f:
         os_structures = json.load(f)
     
-    with open(exec_regions_path, 'r') as f:
+    with open(exec_regions_path, 'r', encoding='utf-8') as f:
         exec_regions = json.load(f)
     
     if len(os_structures.get("processes", [])) == 0:

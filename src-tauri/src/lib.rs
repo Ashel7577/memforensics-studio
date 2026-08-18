@@ -311,6 +311,11 @@ async fn start_pipeline(
                 // stages (Engine 2) looked frozen and sub-progress parsing was starved.
                 // Force line-flushing so output reaches the console as it happens.
                 .env("PYTHONUNBUFFERED", "1")
+                // Windows consoles default to a legacy codepage (cp1252), which
+                // cannot encode the emoji status markers the engines print — the
+                // first such line raised UnicodeEncodeError and killed the stage.
+                .env("PYTHONIOENCODING", "utf-8:replace")
+                .env("PYTHONUTF8", "1")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn() {
