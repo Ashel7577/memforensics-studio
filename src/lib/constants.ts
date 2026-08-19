@@ -53,3 +53,8 @@ export const ENGINES: EngineConfig[] = [
 ];
 
 export const JSON_ANALYZER_URL = 'https://memforensics-dashboard.pages.dev';
+
+// Local, offline copy of the analyzer bundled into the app (public/analyzer/).
+// The iframe on the Report page loads this so analysis works with no internet.
+// The Navbar / Dashboard 'open in browser' buttons keep using JSON_ANALYZER_URL above.
+export const JSON_ANALYZER_LOCAL_URL = 'analyzer/index.html';

@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MemForensics Dashboard</title>
+    <link rel="icon" href="ashel.png" type="image/png" sizes="32x32">
+    <link rel="apple-touch-icon" href="ashel.png">
+<script src="chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg-2: #131722;
+    --accent: #00d4ff;
+    --accent-dim: rgba(0, 212, 255, 0.15);
+    --green: #29d398;
+    --red: #ff5c6c;
+    --amber: #ffb454;
+    --text: #e7ecf3;
+    --text-dim: #8b95a7;
+    --glass-bg: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; background: var(--bg); }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(0, 212, 255, 0.08), transparent 60%),
+      radial-gradient(900px 500px at -10% 20%, rgba(0, 212, 255, 0.05), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- Header ---------- */
+  header.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 26px;
+    background: rgba(15, 17, 23, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .logo {
+  width: 42px;
+  height: 42px;
+  background-image: url('ashel.png');
+  background-size: cover;
+  background-position: center;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 212, 255, 0.5);
+  box-shadow: 0 0 25px rgba(0, 212, 255, 0.5);
+  flex-shrink: 0;
+  animation: logoBreath 4s ease-in-out infinite;
+  transition: transform 0.3s ease;
+}
+
+.logo:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 35px rgba(0, 212, 255, 0.8);
+}
+
+/* Nice Breathing Glow Animation */
+@keyframes logoBreath {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(0, 212, 255, 0.85);
+    filter: brightness(1.15);
+  }
+}
+  .topbar h1 {
+    font-size: 19px; font-weight: 700; letter-spacing: 0.3px;
+  }
+  .topbar h1 span { color: var(--accent); }
+  .topbar .tag {
+    font-size: 11px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase;
+  }
+  .topbar .spacer { flex: 1; }
+
+  .btn {
+    cursor: pointer;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    color: var(--text);
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.15s ease;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 14px rgba(0,212,255,0.2); }
+  .btn-primary {
+    background: linear-gradient(135deg, rgba(0,212,255,0.22), rgba(0,212,255,0.08));
+    border-color: rgba(0,212,255,0.5);
+    color: var(--accent);
+  }
+  .btn svg { width: 16px; height: 16px; stroke: currentColor; }
+
+  /* ---------- Layout ---------- */
+  .shell { display: flex; align-items: flex-start; }
+
+  nav.side {
+    position: sticky;
+    top: 67px;
+    width: 232px;
+    flex-shrink: 0;
+    padding: 24px 16px;
+    height: calc(100vh - 67px);
+    overflow-y: auto;
+  }
+  nav.side .nav-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--text-dim); margin: 0 12px 12px;
+  }
+  nav.side a {
+    display: flex; align-items: center; gap: 11px;
+    padding: 10px 12px;
+    border-radius: 9px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 500;
+    transition: all 0.14s ease;
+    border: 1px solid transparent;
+  }
+  nav.side a:hover { color: var(--text); background: var(--glass-bg); }
+  nav.side a.active {
+    color: var(--accent);
+    background: var(--accent-dim);
+    border-color: rgba(0,212,255,0.3);
+  }
+  nav.side a .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim); flex-shrink: 0;
+  }
+  nav.side a.active .dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  main { flex: 1; padding: 26px 34px 90px; max-width: 1300px; min-width: 0; }
+
+  /* ---------- Sections ---------- */
+  section { margin-bottom: 56px; scroll-margin-top: 84px; }
+
+  .h2 {
+    display: flex; align-items: center; gap: 13px;
+    font-size: 21px; font-weight: 700;
+    padding-left: 14px;
+    border-left: 4px solid var(--accent);
+    margin-bottom: 20px;
+  }
+  .h2 .sub { font-size: 12.5px; font-weight: 500; color: var(--text-dim); margin-left: 4px; }
+
+  /* ---------- Glass card ---------- */
+  .card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .placeholder {
+    padding: 40px 24px;
+    text-align: center;
+    color: var(--text-dim);
+    border: 1px dashed var(--glass-border);
+    border-radius: var(--radius);
+    background: rgba(255,255,255,0.02);
+    font-size: 14px;
+  }
+  .placeholder svg { width: 30px; height: 30px; stroke: var(--text-dim); margin-bottom: 10px; opacity: 0.6; }
+
+  /* ---------- Upload zone ---------- */
+  #dropzone {
+    border: 2px dashed rgba(0,212,255,0.35);
+    border-radius: 18px;
+    padding: 34px;
+    text-align: center;
+    transition: all 0.2s ease;
+    background: rgba(0,212,255,0.03);
+    cursor: pointer;
+  }
+  #dropzone.drag { background: rgba(0,212,255,0.12); border-color: var(--accent); box-shadow: 0 0 30px rgba(0,212,255,0.2) inset; }
+  #dropzone .icon-circle {
+    width: 58px; height: 58px; border-radius: 50%;
+    display: grid; place-items: center; margin: 0 auto 14px;
+    background: var(--accent-dim); border: 1px solid rgba(0,212,255,0.4);
+  }
+  #dropzone .icon-circle svg { width: 26px; height: 26px; stroke: var(--accent); }
+  #dropzone h3 { font-size: 16px; margin-bottom: 6px; }
+  #dropzone p { color: var(--text-dim); font-size: 13px; }
+  #dropzone .files-list { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .file-chip {
+    font-size: 12px; padding: 6px 12px; border-radius: 20px;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .file-chip.ok { border-color: rgba(41,211,152,0.5); color: var(--green); background: rgba(41,211,152,0.08); }
+  .file-chip svg { width: 13px; height: 13px; stroke: currentColor; }
+
+  /* ---------- Pipeline ---------- */
+  .pipeline { display: flex; align-items: stretch; gap: 0; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 8px; }
+  .pnode {
+    flex: 1; min-width: 150px;
+    padding: 16px 14px; border-radius: var(--radius);
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    text-align: center; position: relative; transition: all 0.3s ease;
+  }
+  .pnode.done {
+    border-color: rgba(41,211,152,0.55);
+    background: rgba(41,211,152,0.08);
+    box-shadow: 0 0 22px rgba(41,211,152,0.18);
+  }
+  .pnode .pcheck {
+    width: 30px; height: 30px; border-radius: 50%; margin: 0 auto 10px;
+    display: grid; place-items: center;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--glass-border);
+    color: var(--text-dim); font-weight: 700;
+  }
+  .pnode.done .pcheck { background: var(--green); border-color: var(--green); color: #06281d; }
+  .pnode .pcheck svg { width: 16px; height: 16px; stroke: currentColor; }
+  .pnode .pname { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .pnode .pdesc { font-size: 11px; color: var(--text-dim); line-height: 1.4; }
+  .pnode.done .pname { color: var(--green); }
+  .parrow {
+    flex: 0 0 36px; display: grid; place-items: center; color: var(--text-dim);
+  }
+  .parrow svg { width: 22px; height: 22px; stroke: currentColor; }
+  .parrow.lit { color: var(--accent); }
+
+  /* ---------- Stat row ---------- */
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .stat {
+    padding: 18px; border-radius: var(--radius);
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .stat .si {
+    width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
+    display: grid; place-items: center;
+    background: var(--accent-dim); border: 1px solid rgba(0,212,255,0.3);
+  }
+  .stat .si svg { width: 20px; height: 20px; stroke: var(--accent); }
+  .stat .slabel { font-size: 11.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .stat .sval { font-size: 16px; font-weight: 700; word-break: break-all; }
+  .stat .sval.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+
+  /* ---------- KPI ---------- */
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 26px; }
+  .kpi {
+    padding: 22px; border-radius: var(--radius);
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    position: relative; overflow: hidden;
+  }
+  .kpi::after { content:""; position:absolute; inset:0; background: linear-gradient(135deg, transparent 60%, var(--accent-dim)); pointer-events:none; }
+  .kpi .knum { font-size: 38px; font-weight: 800; color: var(--accent); line-height: 1; }
+  .kpi .klabel { font-size: 12.5px; color: var(--text-dim); margin-top: 8px; }
+  .kpi.danger .knum { color: var(--red); }
+  .kpi.green .knum { color: var(--green); }
+
+  /* ---------- Table ---------- */
+  .toolbar { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+  .search {
+    flex: 1; min-width: 220px;
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 14px; border-radius: 10px;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+  }
+  .search svg { width: 16px; height: 16px; stroke: var(--text-dim); }
+  .search input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 13.5px; }
+  .legend { font-size: 12px; color: var(--text-dim); display: flex; gap: 14px; align-items: center; }
+  .legend .lg { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .sw { width: 11px; height: 11px; border-radius: 3px; }
+
+  .table-wrap { border-radius: var(--radius); border: 1px solid var(--glass-border); overflow: hidden; background: var(--glass-bg); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; padding: 12px 14px;
+    background: rgba(255,255,255,0.04);
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim);
+    cursor: pointer; user-select: none; white-space: nowrap; position: sticky; top: 0;
+  }
+  thead th:hover { color: var(--accent); }
+  thead th .arrow { opacity: 0.5; font-size: 10px; }
+  tbody td { padding: 11px 14px; border-top: 1px solid var(--glass-border); white-space: nowrap; }
+  tbody tr.suspicious td { color: var(--red); }
+  tbody tr.suspicious { background: rgba(255,92,108,0.07); }
+  tbody tr:hover { background: rgba(255,255,255,0.04); }
+  td.mono, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .scroll-y { max-height: 460px; overflow: auto; }
+
+  /* ---------- Badges ---------- */
+  .badge {
+    font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .badge.red { background: rgba(255,92,108,0.15); color: var(--red); border: 1px solid rgba(255,92,108,0.4); }
+  .badge.green { background: rgba(41,211,152,0.15); color: var(--green); border: 1px solid rgba(41,211,152,0.4); }
+  .badge.cyan { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(0,212,255,0.4); }
+  .badge.grey { background: rgba(255,255,255,0.06); color: var(--text-dim); border: 1px solid var(--glass-border); }
+
+  /* ---------- Region cards ---------- */
+  .region-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .region {
+    padding: 16px; border-radius: var(--radius);
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    transition: all 0.15s ease;
+  }
+  .region:hover { border-color: rgba(0,212,255,0.4); transform: translateY(-2px); }
+  .region.rwx { border-color: rgba(255,92,108,0.35); }
+  .region .rhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .region .rpid { font-size: 13px; font-weight: 700; }
+  .region .rpid span { color: var(--text-dim); font-weight: 500; }
+  .region .rrow { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; }
+  .region .rrow .rk { color: var(--text-dim); }
+  .region .rrow .rv { font-family: ui-monospace, monospace; }
+
+  .big-stat {
+    display: inline-flex; align-items: center; gap: 14px; margin-bottom: 20px;
+    padding: 16px 22px; border-radius: var(--radius);
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+  }
+  .big-stat .bn { font-size: 34px; font-weight: 800; color: var(--accent); }
+  .big-stat .bl { font-size: 13px; color: var(--text-dim); }
+
+  /* ---------- Correlation ---------- */
+  .corr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .corr-col h4 { font-size: 13px; margin-bottom: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .corr-item {
+    padding: 12px 14px; border-radius: 10px; margin-bottom: 9px;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  }
+  .corr-item.confirmed { border-color: rgba(41,211,152,0.4); }
+  .corr-item .ci-main { font-size: 13px; font-weight: 600; }
+  .corr-item .ci-sub { font-size: 11.5px; color: var(--text-dim); font-family: ui-monospace, monospace; }
+
+  /* ---------- Timeline ---------- */
+  .timeline { position: relative; padding-left: 30px; }
+  .timeline::before { content:""; position:absolute; left: 9px; top: 6px; bottom: 6px; width: 2px; background: var(--glass-border); }
+  .tl-item { position: relative; margin-bottom: 16px; }
+  .tl-item .tl-dot {
+    position: absolute; left: -29px; top: 16px; width: 14px; height: 14px;
+    border-radius: 50%; border: 2px solid var(--bg); box-shadow: 0 0 0 2px currentColor;
+  }
+  .tl-card {
+    padding: 14px 16px; border-radius: var(--radius);
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    border-left-width: 3px;
+  }
+  .tl-card .tl-time { font-size: 11.5px; color: var(--text-dim); font-family: ui-monospace, monospace; }
+  .tl-card .tl-title { font-size: 14px; font-weight: 700; margin: 3px 0 8px; }
+  .tl-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tl-meta .tm { font-size: 11.5px; color: var(--text-dim); }
+  .tl-meta .tm b { color: var(--text); font-family: ui-monospace, monospace; }
+
+  /* ---------- Chart frames ---------- */
+  .chart-card { padding: 18px; border-radius: var(--radius); background: var(--glass-bg); border: 1px solid var(--glass-border); }
+  .chart-card h4 { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .chart-box { position: relative; height: 280px; }
+  .chart-box.sm { height: 200px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .hidden { display: none !important; }
+
+  @media (max-width: 900px) {
+    nav.side { display: none; }
+    .corr-grid, .two-col { grid-template-columns: 1fr; }
+    main { padding: 20px 16px 80px; }
+    .topbar .tag { display: none; }
+  }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>
+    </svg>
+  </div>
+  <div>
+    <h1>Mem<span>Forensics</span> Dashboard</h1>
+    <div class="tag">Volatile Memory Analysis Pipeline</div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn btn-primary" id="reportBtn">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+    Generate Report
+  </button>
+</header>
+
+<div class="shell">
+  <nav class="side">
+    <div class="nav-title">Sections</div>
+    <a href="#upload" data-sec="upload" class="active"><span class="dot"></span>Upload</a>
+    <a href="#pipeline" data-sec="pipeline"><span class="dot"></span>Pipeline Status</a>
+    <a href="#summary" data-sec="summary"><span class="dot"></span>Memory Image</a>
+    <a href="#processes" data-sec="processes"><span class="dot"></span>Process Table</a>
+    <a href="#regions" data-sec="regions"><span class="dot"></span>Private Regions</a>
+    <a href="#correlation" data-sec="correlation"><span class="dot"></span>Correlation</a>
+    <a href="#timeline" data-sec="timeline"><span class="dot"></span>Execution Timeline</a>
+    <a href="#classification" data-sec="classification"><span class="dot"></span>Classification</a>
+    <a href="#evidence" data-sec="evidence"><span class="dot"></span>Evidence Summary</a>
+  </nav>
+
+  <main>
+    <!-- UPLOAD -->
+    <section id="upload">
+      <div class="h2">Evidence Intake <span class="sub">Drop the 6 engine JSON outputs</span></div>
+      <div id="dropzone" class="card">
+        <div class="icon-circle">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/></svg>
+        </div>
+        <h3>Drag &amp; drop JSON files here</h3>
+        <p>or click to browse — supports multiple files. Engines auto-detected by content.</p>
+        <input type="file" id="fileInput" accept=".json,application/json" multiple class="hidden" />
+        <div class="files-list" id="filesList"></div>
+      </div>
+    </section>
+
+    <!-- PIPELINE -->
+    <section id="pipeline">
+      <div class="h2">Pipeline Status <span class="sub">Engine 1 → 6 acquisition flow</span></div>
+      <div class="pipeline" id="pipelineFlow"></div>
+    </section>
+
+    <!-- MEMORY SUMMARY -->
+    <section id="summary">
+      <div class="h2">Memory Image Summary <span class="sub">Engine 1 · Acquisition</span></div>
+      <div id="summaryContent"></div>
+    </section>
+
+    <!-- PROCESS TABLE -->
+    <section id="processes">
+      <div class="h2">Process Table <span class="sub">Engine 2 · OS Structures</span></div>
+      <div id="processContent"></div>
+    </section>
+
+    <!-- REGIONS -->
+    <section id="regions">
+      <div class="h2">Private Executable Regions <span class="sub">Engine 3 · VAD Scan</span></div>
+      <div id="regionsContent"></div>
+    </section>
+
+    <!-- CORRELATION -->
+    <section id="correlation">
+      <div class="h2">Execution Correlation <span class="sub">Engine 4 · Confirmed Execution</span></div>
+      <div id="correlationContent"></div>
+    </section>
+
+    <!-- TIMELINE -->
+    <section id="timeline">
+      <div class="h2">Execution Timeline <span class="sub">Engine 5 · Temporal Events</span></div>
+      <div id="timelineContent"></div>
+    </section>
+
+    <!-- CLASSIFICATION -->
+    <section id="classification">
+      <div class="h2">Injection Classification <span class="sub">Engine 6 · MITRE ATT&amp;CK</span></div>
+      <div id="classificationContent"></div>
+    </section>
+
+    <!-- EVIDENCE -->
+    <section id="evidence">
+      <div class="h2">Evidence Summary <span class="sub">Aggregated findings</span></div>
+      <div id="evidenceContent"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* =========================================================
+   MemForensics Dashboard — engine parsing + rendering
+   ========================================================= */
+
+const ENGINES = [
+  { key: 'e1', n: 1, name: 'Acquisition',          file: '01_acquisition.json',          desc: 'Image metadata & hashes' },
+  { key: 'e2', n: 2, name: 'OS Structures',        file: '02_os_structures.json',        desc: 'Process / thread parsing' },
+  { key: 'e3', n: 3, name: 'Private Regions',      file: '03_private_exec_regions.json', desc: 'Executable VAD scan' },
+  { key: 'e4', n: 4, name: 'Correlation',          file: '04_execution_correlation.json',desc: 'Confirmed execution' },
+  { key: 'e5', n: 5, name: 'Timeline',             file: '05_execution_timeline.json',   desc: 'Temporal reconstruction' },
+  { key: 'e6', n: 6, name: 'Classification',      file: '06_classification.json',        desc: 'MITRE ATT&CK + IOC extraction' },
+];
+
+const DATA = { e1: null, e2: null, e3: null, e4: null, e5: null, e6: null };
+
+/* Engine 6 (classification) — surfaced inside the Evidence Summary section */
+const E6_NAME = 'Classification';
+const charts = {};
+
+/* ---------- helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const has = (obj, ...keys) => obj && typeof obj === 'object' && keys.some(k => k in obj);
+
+function deepKeys(obj, depth = 3, acc = new Set()) {
+  if (!obj || typeof obj !== 'object' || depth < 0) return acc;
+  const arr = Array.isArray(obj) ? obj.slice(0, 5) : [obj];
+  for (const item of arr) {
+    if (item && typeof item === 'object') {
+      for (const k of Object.keys(item)) { acc.add(k.toLowerCase()); deepKeys(item[k], depth - 1, acc); }
+    }
+  }
+  return acc;
+}
+
+/* Find first array of objects anywhere in the structure */
+function findArray(obj, depth = 4) {
+  if (Array.isArray(obj) && obj.length && typeof obj[0] === 'object') return obj;
+  if (obj && typeof obj === 'object' && depth > 0) {
+    for (const k of Object.keys(obj)) {
+      const r = findArray(obj[k], depth - 1);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+/* Pull first matching field from an object given candidate names (case-insensitive, partial) */
+function pick(obj, ...cands) {
+  if (!obj || typeof obj !== 'object') return undefined;
+  const keys = Object.keys(obj);
+  for (const c of cands) {
+    const lc = c.toLowerCase();
+    const exact = keys.find(k => k.toLowerCase() === lc);
+    if (exact != null && obj[exact] != null && obj[exact] !== '') return obj[exact];
+  }
+  for (const c of cands) {
+    const lc = c.toLowerCase();
+    const part = keys.find(k => k.toLowerCase().includes(lc));
+    if (part != null && obj[part] != null && obj[part] !== '') return obj[part];
+  }
+  return undefined;
+}
+
+function fmtBytes(v) {
+  if (v == null || v === '') return '—';
+  let n = typeof v === 'string' ? parseInt(v.replace(/[^0-9]/g, ''), 10) : v;
+  if (isNaN(n)) return String(v);
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n / 1048576).toFixed(2) + ' MB';
+  return (n / 1073741824).toFixed(2) + ' GB';
+}
+function rawBytes(v) {
+  if (v == null) return 0;
+  let n = typeof v === 'string' ? parseInt(v.replace(/[^0-9]/g, ''), 10) : v;
+  return isNaN(n) ? 0 : n;
+}
+
+/* ---------- engine detection ---------- */
+function detectEngine(filename, json) {
+  const fn = (filename || '').toLowerCase();
+
+  /* Engine 6 — classification: detect by explicit content first so a renamed file still works */
+  if (json && typeof json === 'object' &&
+      (Array.isArray(json.classifications) || json.engine_id === 'engine_injection_technique_classifier')) return 'e6';
+  /* "06_classification_detection_rules.json" and "06_classification.yar" also match
+     "classif"/"06" by filename alone — exclude them so they don't clobber the real
+     06_classification.json (which has "classifications"/"case_summary") when both
+     are dropped in together. */
+  if (!fn.includes('detection_rules') && !fn.endsWith('.yar') &&
+      (fn.includes('06_classification') || (fn.includes('06') && !fn.includes('rules')) || fn.includes('classification'))) return 'e6';
+
+  if (fn.includes('01') || fn.includes('acquis')) return 'e1';
+  if (fn.includes('02') || fn.includes('os_struct') || fn.includes('process')) return 'e2';
+  if (fn.includes('03') || fn.includes('private') || fn.includes('region')) return 'e3';
+  if (fn.includes('04') || fn.includes('correl')) return 'e4';
+  if (fn.includes('05') || fn.includes('timeline')) return 'e5';
+
+  const keys = deepKeys(json);
+  const k = (...names) => names.some(n => [...keys].some(kk => kk.includes(n)));
+
+  if (k('classifications','technique','rules_applied','total_classified')) return 'e6';
+  if (k('md5','sha256','sha1','acquisition','imagesize','image_size','architecture')) return 'e1';
+  if (k('ppid','parentpid','threads','createtime','start_time','imagefilename')) return 'e2';
+  if (k('vadtype','vad_type','permission','protection','regionsize','region_size','rwx')) return 'e3';
+  if (k('confirmed','execconfirmed','execution_confirmed','correlation','executed')) return 'e4';
+  if (k('timestamp','event_type','eventtype','timeline')) return 'e5';
+  return null;
+}
+
+/* =========================================================
+   UPLOAD
+   ========================================================= */
+const dz = $('#dropzone'), fi = $('#fileInput');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
+fi.addEventListener('change', e => handleFiles(e.target.files));
+
+async function handleFiles(fileList) {
+  const files = [...fileList].filter(f => f.name.endsWith('.json') || f.type.includes('json'));
+  for (const f of files) {
+    try {
+      const text = await f.text();
+      const json = JSON.parse(text);
+      const eng = detectEngine(f.name, json);
+      if (eng) { DATA[eng] = json; addChip(f.name, eng); }
+      else { addChip(f.name, null); }
+    } catch (err) {
+      addChip(f.name + ' (parse error)', null);
+    }
+  }
+  renderAll();
+}
+
+function addChip(name, eng) {
+  const list = $('#filesList');
+  const chip = el('span', 'file-chip' + (eng ? ' ok' : ''));
+  const engDef = eng ? ENGINES.find(e => e.key === eng) : null;
+  const engName = eng ? (engDef ? engDef.name : E6_NAME) : 'unrecognized';
+  chip.innerHTML = (eng
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>')
+    + esc(name) + ' → ' + esc(engName);
+  list.appendChild(chip);
+}
+
+function placeholder(engKey) {
+  const e = ENGINES.find(x => x.key === engKey);
+  return `<div class="placeholder">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+    <div>Upload <b>${esc(e.name)}</b> (<span class="mono">${esc(e.file)}</span>) to view this section.</div>
+  </div>`;
+}
+
+/* =========================================================
+   RENDER ALL
+   ========================================================= */
+
+function renderClassification6() {
+  const c = document.getElementById('classificationContent');
+  if (!c) return;
+  const d = DATA.e6;
+  if (!d) { c.innerHTML = '<div class="placeholder"><div>Upload <b>Classification</b> (<span class="mono">06_classification.json</span>) to view this section — contains MITRE ATT&CK kill chain, C2 intelligence, IOCs and injection technique classification.</div></div>'; return; }
+
+  const cs = d.case_summary || {};
+  const mitre = d.mitre_attack_chain || {};
+  const c2 = d.c2_intelligence || {};
+  const ioc = d.ioc_summary || {};
+  const classifications = d.classifications || [];
+  const killChain = mitre.kill_chain || [];
+  const networkIOCs = ioc.network_iocs || {};
+  const fileIOCs = ioc.file_iocs || {};
+
+  c.innerHTML = `
+    <div class="card" style="padding:20px;margin-bottom:16px;border-color:rgba(255,92,108,0.4);background:rgba(255,92,108,0.06)">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+        <div style="width:10px;height:10px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red)"></div>
+        <span style="font-size:18px;font-weight:700;color:var(--red)">${esc(cs.malware_family||'Unknown')}</span>
+        <span class="badge red">${esc(cs.overall_confidence||'HIGH')}</span>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="si"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div><div class="slabel">C2 Server</div><div class="sval mono" style="color:var(--red)">${esc(cs.c2_server||'—')}:${esc(cs.c2_port||'')}</div></div></div>
+        <div class="stat"><div class="si"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></div><div><div class="slabel">Infected Processes</div><div class="sval" style="color:var(--red)">${esc(cs.processes_infected||'—')}</div></div></div>
+        <div class="stat"><div class="si"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div><div><div class="slabel">Payload</div><div class="sval mono">${esc(cs.payload||'—')}</div></div></div>
+        <div class="stat"><div class="si"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div><div class="slabel">Primary User</div><div class="sval mono">${esc(cs.primary_user||'—')}</div></div></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px">Network IOCs</div>
+        <div class="rrow"><span class="rk">C2 IP</span><span class="rv" style="color:var(--red)">${esc(networkIOCs.c2_ip||'—')}</span></div>
+        <div class="rrow"><span class="rk">Port</span><span class="rv">${esc(networkIOCs.c2_port||'—')}</span></div>
+        <div class="rrow"><span class="rk">Protocol</span><span class="rv">${esc(networkIOCs.c2_protocol||'—')}</span></div>
+        <div class="rrow"><span class="rk">Path</span><span class="rv" style="font-size:10px;color:var(--amber)">${esc(networkIOCs.c2_path||'—')}</span></div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px">File IOCs</div>
+        <div class="rrow"><span class="rk">DLL</span><span class="rv" style="color:var(--amber)">${esc(fileIOCs.dll_name||'—')}</span></div>
+        <div class="rrow"><span class="rk">MD5</span><span class="rv" style="font-size:11px">${esc(fileIOCs.md5||'—')}</span></div>
+        <div class="rrow"><span class="rk">SHA256</span><span class="rv" style="font-size:10px">${esc((fileIOCs.sha256||'—').slice(0,40)+'...')}</span></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:12px">MITRE ATT&CK Kill Chain — ${killChain.length} stages</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${killChain.map(s => `<div style="flex:1;min-width:110px;background:rgba(255,92,108,0.08);border:1px solid rgba(255,92,108,0.3);border-radius:8px;padding:10px"><div style="font-size:9px;color:var(--text-dim);text-transform:uppercase">${esc(s.stage||'')}</div><div style="font-size:12px;font-weight:700;color:var(--red);font-family:monospace">${esc(s.technique_id||'')}</div><div style="font-size:10px;color:var(--text-dim)">${esc((s.technique_name||'').split(':').pop()?.trim()||'')}</div></div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px">
+      <div style="font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:12px">Classifications (${classifications.length})</div>
+      <div class="table-wrap"><div class="scroll-y"><table>
+        <thead><tr><th>PID</th><th>Process</th><th>Technique</th><th>Confidence</th></tr></thead>
+        <tbody>${classifications.map(cl => `<tr>
+          <td class="mono" style="color:var(--red)">${esc(cl.pid||'—')}</td>
+          <td>${esc(cl.process_name||cl.process||'—')}</td>
+          <td><span class="badge red">${esc(cl.technique||'—')}</span></td>
+          <td><span class="badge ${(cl.confidence_level||'').includes('HIGH')||cl.confidence_level==='CRITICAL'?'red':'cyan'}">${esc(cl.confidence_level||'—')}</span></td>
+        </tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:16px">No classifications</td></tr>'}
+        </tbody>
+      </table></div></div>
+    </div>
+  `;
+}
+
+function renderAll() {
+  renderPipeline();
+  renderSummary();
+  renderProcesses();
+  renderRegions();
+  renderCorrelation();
+  renderTimeline();
+  renderClassification6();
+  renderEvidence();
+}
+
+/* ---------- 1. Pipeline ---------- */
+function renderPipeline() {
+  const flow = $('#pipelineFlow');
+  flow.innerHTML = '';
+  ENGINES.forEach((e, i) => {
+    const done = !!DATA[e.key];
+    const node = el('div', 'pnode' + (done ? ' done' : ''));
+    node.innerHTML = `
+      <div class="pcheck">${done
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+        : e.n}</div>
+      <div class="pname">Engine ${e.n}</div>
+      <div class="pdesc"><b style="color:var(--text)">${esc(e.name)}</b><br>${esc(e.desc)}</div>`;
+    flow.appendChild(node);
+    if (i < ENGINES.length - 1) {
+      const arr = el('div', 'parrow' + (done && DATA[ENGINES[i+1].key] ? ' lit' : ''));
+      arr.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+      flow.appendChild(arr);
+    }
+  });
+}
+
+/* ---------- 2. Memory Summary ---------- */
+function getE1() {
+  const d = DATA.e1; if (!d) return null;
+  const src = (typeof d === 'object' && !Array.isArray(d)) ? (d.acquisition || d.image || d.metadata || d) : d;
+  return {
+    filename: pick(src, 'image_filename','filename','image','imagefile','file','source'),
+    size: pick(src, 'image_size','imagesize','size','filesize'),
+    time: pick(src, 'acquisition_time','acquired','timestamp','time','date','collection_time'),
+    md5: pick(src, 'md5','md5_hash'),
+    sha256: pick(src, 'sha256','sha256_hash','sha-256'),
+    arch: pick(src, 'architecture','arch','memory_architecture','os','profile','platform'),
+  };
+}
+function renderSummary() {
+  const c = $('#summaryContent');
+  const s = getE1();
+  if (!s) { c.innerHTML = placeholder('e1'); return; }
+  const icon = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+  const stats = [
+    ['Image File', s.filename || '—', false, icon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>')],
+    ['Image Size', s.size != null ? fmtBytes(s.size) : '—', false, icon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>')],
+    ['Acquired', s.time || '—', false, icon('<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>')],
+    ['Architecture', s.arch || '—', false, icon('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>')],
+    ['MD5', s.md5 || '—', true, icon('<path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9"/>')],
+    ['SHA-256', s.sha256 || '—', true, icon('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>')],
+  ];
+  c.innerHTML = `<div class="stat-row">${stats.map(([l,v,mono,ic]) => `
+    <div class="stat"><div class="si">${ic}</div><div style="min-width:0"><div class="slabel">${l}</div><div class="sval${mono?' mono':''}">${esc(v)}</div></div></div>
+  `).join('')}</div>`;
+}
+
+/* ---------- collect suspicious PIDs from engines 3/4/5 ---------- */
+function suspiciousPIDs() {
+  const set = new Set();
+  // If Engine 6 is available, use ONLY its classifications as source of truth
+  // This respects the whitelist fix applied in Engine 6
+  if (DATA.e6 && Array.isArray(DATA.e6.classifications) && DATA.e6.classifications.length > 0) {
+    DATA.e6.classifications.forEach(c => {
+      if (c.pid != null) set.add(String(c.pid));
+    });
+    return set;
+  }
+  // Fallback: use engines 3/4/5 if Engine 6 not loaded
+  const add = (p) => { if (p != null) set.add(String(p)); };
+  (getCorrelation() || []).forEach(r => { if (r.confirmed) add(r.pid); });
+  const cls = getClassification();
+  if (cls) cls.items.forEach(it => add(it.pid));
+  return set;
+}
+
+/* ---------- 3. Process Table ---------- */
+let procSort = { col: 'pid', dir: 1 };
+function getProcs() {
+  const d = DATA.e2; if (!d) return null;
+  const arr = (d && Array.isArray(d.processes)) ? d.processes : findArray(d); if (!arr) return null;
+  return arr.map(p => {
+    /* threads may be an array of {tid,start_address,create_time} objects → show the count */
+    const rawThreads = pick(p, 'threads','thread_count','num_threads','threadcount');
+    const threadCount = Array.isArray(rawThreads) ? rawThreads.length : rawThreads;
+    return {
+      pid: pick(p, 'pid','process_id','processid'),
+      name: pick(p, 'process_name','name','imagefilename','image_name','process'),
+      ppid: pick(p, 'ppid','parent_pid','parentpid'),
+      pname: pick(p, 'parent_image_name','parent_name','parent_process','parentname','parent'),
+      start: pick(p, 'start_time','createtime','create_time','started','starttime'),
+      threads: threadCount,
+      path: pick(p, 'command_line','path','image_path','executable','full_path','cmdline'),
+    };
+  });
+}
+function renderProcesses() {
+  const c = $('#processContent');
+  const procs = getProcs();
+  if (!procs) { c.innerHTML = placeholder('e2'); return; }
+  const susp = suspiciousPIDs();
+  c.innerHTML = `
+    <div class="toolbar">
+      <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4-4"/></svg>
+        <input type="text" id="procSearch" placeholder="Filter by PID, name, path..." /></div>
+      <div class="legend">
+        <span class="lg"><span class="sw" style="background:var(--red)"></span>Suspicious</span>
+        <span class="lg"><span class="sw" style="background:rgba(255,255,255,0.4)"></span>Normal</span>
+      </div>
+    </div>
+    <div class="table-wrap"><div class="scroll-y"><table>
+      <thead><tr>
+        ${[['pid','PID'],['name','Process'],['ppid','PPID'],['pname','Parent'],['start','Start Time'],['threads','Threads'],['path','Path']]
+          .map(([k,l]) => `<th data-col="${k}">${l} <span class="arrow"></span></th>`).join('')}
+      </tr></thead>
+      <tbody id="procBody"></tbody>
+    </table></div></div>`;
+
+  function draw() {
+    const q = ($('#procSearch').value || '').toLowerCase();
+    let rows = procs.filter(p => !q || [p.pid,p.name,p.ppid,p.pname,p.path].some(v => String(v||'').toLowerCase().includes(q)));
+    rows.sort((a,b) => {
+      let x = a[procSort.col], y = b[procSort.col];
+      const nx = parseFloat(x), ny = parseFloat(y);
+      if (!isNaN(nx) && !isNaN(ny)) return (nx-ny)*procSort.dir;
+      return String(x||'').localeCompare(String(y||''))*procSort.dir;
+    });
+    $('#procBody').innerHTML = rows.map(p => {
+      const sus = p.pid != null && susp.has(String(p.pid));
+      return `<tr class="${sus?'suspicious':''}">
+        <td class="mono">${esc(p.pid)}</td>
+        <td>${sus?'⚠ ':''}${esc(p.name||'—')}</td>
+        <td class="mono">${esc(p.ppid??'—')}</td>
+        <td>${esc(p.pname||'—')}</td>
+        <td class="mono">${esc(p.start||'—')}</td>
+        <td class="mono">${esc(p.threads??'—')}</td>
+        <td class="mono" style="max-width:280px;overflow:hidden;text-overflow:ellipsis">${esc(p.path||'—')}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:24px">No matching processes</td></tr>';
+    document.querySelectorAll('#processContent thead th').forEach(th => {
+      const a = th.querySelector('.arrow');
+      a.textContent = th.dataset.col === procSort.col ? (procSort.dir>0?'▲':'▼') : '';
+    });
+  }
+  $('#procSearch').addEventListener('input', draw);
+  document.querySelectorAll('#processContent thead th').forEach(th => th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (procSort.col === col) procSort.dir *= -1; else { procSort.col = col; procSort.dir = 1; }
+    draw();
+  }));
+  draw();
+}
+
+/* ---------- 4. Private Regions ---------- */
+function getRegions() {
+  const d = DATA.e3; if (!d) return null;
+  /* Engine 3 uses the exact array key "private_exec_regions" */
+  const arr = (d && Array.isArray(d.private_exec_regions)) ? d.private_exec_regions : findArray(d); if (!arr) return null;
+  return arr.map(r => ({
+    pid: pick(r, 'pid','process_id','processid'),
+    name: pick(r, 'process_image','process_name','name','process','imagefilename'),
+    base: pick(r, 'base_address','region_base','base','start_address','address','vad_start'),
+    size: pick(r, 'region_size','size','length','vad_size'),
+    perms: pick(r, 'permissions','protection','protect','perms','rights'),
+    vad: pick(r, 'vad_type','type','vadtype','region_type','tag','vad_tag','memtag'),
+  }));
+}
+function isRWX(perms) {
+  const p = String(perms || '').toUpperCase();
+  return (p.includes('RWX') || p.includes('EXECUTE_READWRITE') || (p.includes('W') && p.includes('X')) || p.includes('PAGE_EXECUTE_READWRITE'));
+}
+function renderRegions() {
+  const c = $('#regionsContent');
+  const regs = getRegions();
+  if (!regs) { c.innerHTML = placeholder('e3'); return; }
+  const rwxCount = regs.filter(r => isRWX(r.perms)).length;
+  c.innerHTML = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+      <div class="big-stat"><div class="bn">${regs.length}</div><div class="bl">Private<br>Regions Found</div></div>
+      <div class="big-stat"><div class="bn" style="color:var(--red)">${rwxCount}</div><div class="bl">RWX<br>(Read/Write/Exec)</div></div>
+    </div>
+    <div class="region-grid">${regs.map(r => {
+      const rwx = isRWX(r.perms);
+      return `<div class="region${rwx?' rwx':''}">
+        <div class="rhead">
+          <div class="rpid">PID <span>${esc(r.pid??'—')}</span> · ${esc(r.name||'unknown')}</div>
+          ${rwx ? '<span class="badge red">RWX</span>' : `<span class="badge cyan">${esc(r.perms||'RX')}</span>`}
+        </div>
+        <div class="rrow"><span class="rk">Base Address</span><span class="rv">${esc(r.base||'—')}</span></div>
+        <div class="rrow"><span class="rk">Region Size</span><span class="rv">${r.size!=null?esc(fmtBytes(r.size)):'—'}</span></div>
+        <div class="rrow"><span class="rk">Permissions</span><span class="rv">${esc(r.perms||'—')}</span></div>
+        <div class="rrow"><span class="rk">VAD Type</span><span class="rv">${esc(r.vad||'—')}</span></div>
+      </div>`;
+    }).join('')}</div>`;
+}
+
+/* ---------- 5. Correlation ---------- */
+/* normalize a hex/dec address string for reliable matching */
+function normAddr(a) {
+  if (a == null) return '';
+  let s = String(a).trim().toLowerCase();
+  if (s.startsWith('0x')) s = s.slice(2);
+  s = s.replace(/^0+/, '');
+  return s || '0';
+}
+/* set of "pid|addr" keys that the Engine 5 timeline confirms as EXECUTE events */
+function executedKeys() {
+  const tl = getTimeline() || [];
+  const keys = new Set();
+  tl.forEach(e => {
+    const t = String(e.type || '').toLowerCase();
+    if (t.includes('exec')) {
+      if (e.addr != null) keys.add(normAddr(e.addr));
+      if (e.pid != null && e.addr != null) keys.add(String(e.pid) + '|' + normAddr(e.addr));
+    }
+  });
+  return keys;
+}
+function getCorrelation() {
+  let arr = null;
+  if (DATA.e4) {
+    arr = DATA.e4.correlation ?? DATA.e4.execution_events ?? findArray(DATA.e4);
+  }
+  if (!arr && DATA.e3) { arr = getRegions(); }
+  if (!arr) return null;
+
+  const execKeys = executedKeys();
+  return arr.map(r => {
+    const pid = pick(r, 'pid','process_id','processid');
+    // base_address may be nested inside exec_region
+    const region = (r && typeof r.exec_region === 'object') ? r.exec_region : null;
+    const base = (region ? pick(region, 'base_address','address','base') : undefined)
+                 ?? pick(r, 'base_address','region_base','base','address','start_address');
+    const name = pick(r, 'process_image','process_name','name','process','imagefilename');
+    /* Proof types like network_connection/process_creation carry no memory address at
+       all — falling back to "—" made distinct events (e.g. two separate network
+       connections from the same PID) look like identical blank duplicates. Surface
+       whatever *is* on the record instead: remote IP:port for network proofs, or the
+       command line for process-creation proofs. */
+    const net = (r && typeof r.network_detail === 'object') ? r.network_detail : null;
+    const detail = base
+      ?? (net && net.remote_ip ? `${net.remote_ip}:${net.remote_port ?? ''}` : null)
+      ?? pick(r, 'command_line','cmdline');
+    // proof_method presence = execution confirmed in E4
+    const hasProof = pick(r, 'proof_method') != null;
+    let confirmed = hasProof;
+    if (!confirmed) {
+      const v = pick(r, 'execution_confirmed','confirmed','executed','exec_confirmed','is_executed');
+      if (typeof v === 'boolean') confirmed = v;
+      else if (typeof v === 'string') confirmed = /^(true|yes|confirmed|1)$/i.test(v);
+      else if (typeof v === 'number') confirmed = v > 0;
+    }
+    if (!confirmed && base != null) {
+      const na = normAddr(base);
+      if (execKeys.has(na) || (pid != null && execKeys.has(String(pid) + '|' + na))) confirmed = true;
+    }
+    return { pid, name, base, detail, confirmed: confirmed === true };
+  });
+}
+function renderCorrelation() {
+  const c = $('#correlationContent');
+  const corr = getCorrelation();
+  if (!corr) { c.innerHTML = placeholder('e4'); return; }
+  const confirmed = corr.filter(r => r.confirmed);
+  // count per process for chart
+  const byProc = {};
+  corr.forEach(r => { const n = r.name || ('PID ' + r.pid); byProc[n] = byProc[n] || {total:0, conf:0}; byProc[n].total++; if (r.confirmed) byProc[n].conf++; });
+  const labels = Object.keys(byProc);
+
+  c.innerHTML = `
+    <div class="corr-grid">
+      <div class="corr-col"><h4>All Private Regions (${corr.length})</h4>
+        ${corr.map(r => `<div class="corr-item"><div><div class="ci-main">${esc(r.name||'unknown')} · PID ${esc(r.pid??'—')}</div><div class="ci-sub">${esc(r.detail||'—')}</div></div>${r.confirmed?'<span class="badge green">EXEC</span>':'<span class="badge grey">idle</span>'}</div>`).join('') || '<div class="placeholder">No regions</div>'}
+      </div>
+      <div class="corr-col"><h4>Execution Confirmed (${confirmed.length})</h4>
+        ${confirmed.map(r => `<div class="corr-item confirmed"><div><div class="ci-main">${esc(r.name||'unknown')} · PID ${esc(r.pid??'—')}</div><div class="ci-sub">${esc(r.detail||'—')}</div></div><span class="badge green"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>EXEC CONFIRMED</span></div>`).join('') || '<div class="placeholder">None confirmed</div>'}
+      </div>
+    </div>
+    <div class="chart-card"><h4>Regions vs Confirmed Execution per Process</h4><div class="chart-box"><canvas id="corrChart"></canvas></div></div>`;
+
+  makeChart('corrChart', 'bar', {
+    labels,
+    datasets: [
+      { label: 'Total Regions', data: labels.map(l => byProc[l].total), backgroundColor: 'rgba(0,212,255,0.35)', borderColor:'#00d4ff', borderWidth:1, borderRadius:5 },
+      { label: 'Exec Confirmed', data: labels.map(l => byProc[l].conf), backgroundColor: 'rgba(41,211,152,0.55)', borderColor:'#29d398', borderWidth:1, borderRadius:5 },
+    ]
+  }, { indexAxis: 'y' });
+}
+
+/* ---------- 6. Timeline ---------- */
+const PID_COLORS = ['#00d4ff','#29d398','#ffb454','#ff5c6c','#b388ff','#ff8fc7','#5cc8ff','#9be15d'];
+const pidColorMap = {};
+function colorForPID(pid) {
+  const k = String(pid);
+  if (!(k in pidColorMap)) pidColorMap[k] = PID_COLORS[Object.keys(pidColorMap).length % PID_COLORS.length];
+  return pidColorMap[k];
+}
+function getTimeline() {
+  const d = DATA.e5; if (!d) return null;
+  /* Engine 5 uses the exact array key "execution_timeline" */
+  const arr = (d && Array.isArray(d.execution_timeline)) ? d.execution_timeline : findArray(d); if (!arr) return null;
+  return arr.map(r => {
+    /* size & address are nested inside exec_region: exec_region.size / exec_region.base_address */
+    const region = r && typeof r.exec_region === 'object' ? r.exec_region : null;
+    return {
+      /* Engine 5 events carry no "type"/"event" field — the proof/classification field is
+         "proof_method" (e.g. "network_connection"). Without it here, every card fell back
+         to the generic literal "event" label regardless of what actually happened. */
+      time: pick(r, 'create_time','timestamp','time','event_time','date','when'),
+      pid: pick(r, 'pid','process_id','processid'),
+      name: pick(r, 'process_image','process_name','name','process'),
+      type: pick(r, 'proof_method','event_type','eventtype','type','event','action'),
+      /* network_connection / process_creation events carry no exec_region at all — fall
+         back to remote IP:port or the command line so the card isn't just blank dashes. */
+      addr: (region ? pick(region, 'base_address','address','base') : undefined)
+            ?? pick(r, 'region_address','address','base_address','base','region')
+            ?? (r && typeof r.network_detail === 'object' && r.network_detail.remote_ip
+                ? `${r.network_detail.remote_ip}:${r.network_detail.remote_port ?? ''}` : undefined)
+            ?? pick(r, 'command_line','cmdline'),
+      size: (region ? pick(region, 'size','region_size','length') : undefined)
+            ?? pick(r, 'size','region_size','length'),
+    };
+  }).sort((a,b) => String(a.time||'').localeCompare(String(b.time||'')));
+}
+function renderTimeline() {
+  const c = $('#timelineContent');
+  const tl = getTimeline();
+  if (!tl) { c.innerHTML = placeholder('e5'); return; }
+  // frequency buckets by hour/min prefix
+  const freq = {};
+  tl.forEach(e => { const t = String(e.time||'').slice(0,16) || 'unknown'; freq[t] = (freq[t]||0)+1; });
+  const fLabels = Object.keys(freq);
+
+  c.innerHTML = `
+    <div class="chart-card" style="margin-bottom:20px"><h4>Event Frequency Over Time (${tl.length} events)</h4><div class="chart-box sm"><canvas id="tlChart"></canvas></div></div>
+    <div class="timeline">${tl.map(e => {
+      const col = colorForPID(e.pid);
+      return `<div class="tl-item">
+        <div class="tl-dot" style="color:${col};background:${col}"></div>
+        <div class="tl-card" style="border-left-color:${col}">
+          <div class="tl-time">${esc(e.time||'—')}</div>
+          <div class="tl-title" style="color:${col}">${esc(e.type||'event')}</div>
+          <div class="tl-meta">
+            <span class="tm">PID <b>${esc(e.pid??'—')}</b></span>
+            <span class="tm">Process <b>${esc(e.name||'—')}</b></span>
+            <span class="tm">Addr <b>${esc(e.addr||'—')}</b></span>
+            <span class="tm">Size <b>${e.size!=null?esc(fmtBytes(e.size)):'—'}</b></span>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+
+  makeChart('tlChart', 'line', {
+    labels: fLabels,
+    datasets: [{ label:'Events', data: fLabels.map(l=>freq[l]), borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.15)', fill:true, tension:0.35, pointRadius:3, pointBackgroundColor:'#00d4ff' }]
+  });
+}
+
+/* ---------- 6b. Classification (Engine 6) ---------- */
+function getClassification() {
+  const d = DATA.e6; if (!d) return null;
+  const arr = Array.isArray(d.classifications) ? d.classifications : (findArray(d) || []);
+  return {
+    total: pick(d, 'total_classified','total','count') ?? arr.length,
+    rules: pick(d, 'rules_applied','rules','rule_count'),
+    items: arr.map(r => ({
+      pid: pick(r, 'pid','process_id','processid'),
+      process: pick(r, 'process','process_name','name'),
+      technique: pick(r, 'technique','classification','label','injection_technique'),
+      confidence: pick(r, 'confidence_score','confidence','score','probability'),
+      cmd: pick(r, 'command_line','cmdline','command','cmd'),
+    })),
+  };
+}
+function fmtConfidence(v) {
+  if (v == null || v === '') return '—';
+  if (typeof v === 'number') return v <= 1 ? Math.round(v * 100) + '%' : v + '%';
+  return String(v);
+}
+function renderClassification() {
+  const cls = getClassification();
+  if (!cls) return '';
+  const rows = cls.items.map(it => `
+    <tr>
+      <td class="mono">${esc(it.pid??'—')}</td>
+      <td>${esc(it.process||'—')}</td>
+      <td><span class="badge red">${esc(it.technique||'—')}</span></td>
+      <td class="mono">${esc(fmtConfidence(it.confidence))}</td>
+      <td class="mono" style="max-width:340px;overflow:hidden;text-overflow:ellipsis">${esc(it.cmd||'—')}</td>
+    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:20px">No classifications</td></tr>';
+  return `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 18px">
+      <div class="big-stat"><div class="bn">${esc(cls.total??'—')}</div><div class="bl">Total<br>Classified</div></div>
+      <div class="big-stat"><div class="bn" style="color:var(--amber)">${esc(cls.rules??'—')}</div><div class="bl">Rules<br>Applied</div></div>
+    </div>
+    <div class="chart-card" style="margin-bottom:26px">
+      <h4>Injection Technique Classifications</h4>
+      <div class="table-wrap"><div class="scroll-y"><table>
+        <thead><tr><th>PID</th><th>Process</th><th>Technique</th><th>Confidence</th><th>Command Line</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div></div>
+    </div>`;
+}
+
+/* ---------- 7. Evidence Summary ---------- */
+let countAnimDone = false;
+function renderEvidence() {
+  const c = $('#evidenceContent');
+  if (!DATA.e1 && !DATA.e2 && !DATA.e3 && !DATA.e4 && !DATA.e5 && !DATA.e6) { c.innerHTML = placeholder('e2'); c.firstChild && (c.querySelector('.placeholder div').innerHTML = 'Upload engine outputs to generate the evidence summary.'); return; }
+  const m = metrics();
+  c.innerHTML = `
+    ${renderClassification()}
+    <div class="kpi-row">
+      <div class="kpi danger"><div class="knum cu" data-target="${m.suspicious}">0</div><div class="klabel">Suspicious Processes</div></div>
+      <div class="kpi"><div class="knum cu" data-target="${m.regions}">0</div><div class="klabel">Private Exec Regions</div></div>
+      <div class="kpi green"><div class="knum cu" data-target="${m.confirmed}">0</div><div class="klabel">Execution Confirmed</div></div>
+      <div class="kpi"><div class="knum cu" data-target="${m.events}">0</div><div class="klabel">Timeline Events</div></div>
+    </div>
+    <div class="two-col">
+      <div class="chart-card"><h4>Processes vs Suspicious Activity</h4><div class="chart-box"><canvas id="donutChart"></canvas></div></div>
+      <div class="chart-card"><h4>Findings Breakdown</h4><div class="chart-box"><canvas id="findChart"></canvas></div></div>
+    </div>`;
+
+  const totalProc = m.totalProc || 0;
+  const clean = Math.max(0, totalProc - m.suspicious);
+  makeChart('donutChart', 'doughnut', {
+    labels: ['Clean Processes', 'Suspicious'],
+    datasets: [{ data: [clean, m.suspicious], backgroundColor: ['rgba(0,212,255,0.4)','rgba(255,92,108,0.7)'], borderColor:['#00d4ff','#ff5c6c'], borderWidth:1 }]
+  }, { cutout: '62%' });
+  makeChart('findChart', 'bar', {
+    labels: ['Suspicious','Regions','Confirmed','Events'],
+    datasets: [{ label:'Count', data:[m.suspicious,m.regions,m.confirmed,m.events], backgroundColor:['#ff5c6c','#00d4ff','#29d398','#ffb454'], borderRadius:6 }]
+  });
+
+  animateCounts();
+}
+
+function metrics() {
+  const regs = getRegions() || [];
+  const corr = getCorrelation() || [];
+  const tl = getTimeline() || [];
+  const procs = getProcs() || [];
+  return {
+    suspicious: suspiciousPIDs().size,
+    regions: regs.length,
+    confirmed: corr.filter(r => r.confirmed).length,
+    events: tl.length,
+    totalProc: procs.length,
+  };
+}
+
+function animateCounts() {
+  document.querySelectorAll('.cu').forEach(node => {
+    const target = parseInt(node.dataset.target, 10) || 0;
+    const dur = 900, start = performance.now();
+    function step(t) {
+      const p = Math.min(1, (t - start) / dur);
+      node.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+/* ---------- Chart factory ---------- */
+Chart.defaults.color = '#8b95a7';
+Chart.defaults.font.family = '-apple-system, "Segoe UI", Roboto, sans-serif';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.08)';
+function makeChart(id, type, data, extra = {}) {
+  const ctx = document.getElementById(id); if (!ctx) return;
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(ctx, {
+    type, data,
+    options: Object.assign({
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { boxWidth: 12, padding: 14 } } },
+      scales: (type === 'doughnut' || type === 'pie') ? {} : {
+        x: { grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true }
+      }
+    }, extra)
+  });
+}
+$('#reportBtn').addEventListener('click', () => {
+  const m = metrics();
+  const procs = getProcs() || [];
+  const regs = getRegions() || [];
+  const corr = getCorrelation() || [];
+  const tl = getTimeline() || [];
+  const susp = suspiciousPIDs();
+  const flagged = procs.filter(p => p.pid != null && susp.has(String(p.pid)));
+  const confirmed = corr.filter(r => r.confirmed);
+  const s = getE1();
+  const now = new Date().toLocaleString();
+
+  const iocIPs = new Set();
+  const iocPaths = new Set();
+  const iocDLLs = new Set();
+
+  // Extract IOCs from Engine 6 classification data
+  if (DATA.e6) {
+    const c2 = DATA.e6.c2_intelligence || {};
+    (c2.ioc_collection?.ips || []).forEach(ip => iocIPs.add(ip));
+    (c2.payloads || []).forEach(p => { if (p.filename) iocDLLs.add(p.filename); });
+    const cs = DATA.e6.case_summary || {};
+    if (cs.malware_family) iocIPs.add && cs.c2_server && iocIPs.add(cs.c2_server);
+  }
+  // Also extract from timeline
+  tl.forEach(e => {
+    const cmd = String(e.type || e.name || '');
+    (cmd.match(/\d{1,3}(?:\.\d{1,3}){3}/g) || []).forEach(ip => iocIPs.add(ip));
+  });
+
+  const malwareFamily = DATA.e6?.case_summary?.malware_family || '';
+  const injectionTech = DATA.e6?.case_summary?.injection_technique || '';
+  const primaryUser = DATA.e6?.case_summary?.primary_user || '';
+  const hasCritical = iocIPs.size > 0 || m.confirmed > 0;
+  const sevClass = hasCritical ? 'critical' : 'high';
+  const sevText = hasCritical
+    ? `<strong style="color:#ff4d4d">CRITICAL</strong> — ${malwareFamily ? malwareFamily + ' detected. ' : ''}Execution confirmed in ${m.confirmed} region(s). ${iocIPs.size} C2 IP(s) detected. ${injectionTech ? 'Technique: ' + injectionTech : ''}`
+    : `<strong style="color:#f0a500">HIGH</strong> — Suspicious injection activity across ${m.suspicious} process(es).`;
+
+  const palettes = ['#ff4d4d','#f0a500','#58a6ff','#00d4aa','#a78bfa','#f472b6'];
+
+  const techCount = {};
+  (DATA.e5 ? (findArray(DATA.e5)||[]) : []).forEach(e => {
+    const t = e.proof_method || e.type || 'event';
+    techCount[t] = (techCount[t]||0)+1;
+  });
+
+  const techLabels = JSON.stringify(Object.keys(techCount));
+  const techValues = JSON.stringify(Object.values(techCount));
+  const attackLabels = JSON.stringify(['T1055.001','T1218.011','T1071.001','T1059.001']);
+  const attackValues = JSON.stringify([m.regions, m.confirmed, iocIPs.size, flagged.length]);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>MemForensics Report — ${now}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"><\/script>
+<style>
+:root{--bg:#080c10;--bg2:#0d1117;--bg3:#161b22;--bg4:#1c2230;--border:#21262d;--border2:#30363d;--teal:#00d4aa;--teal2:#00a884;--teal-dim:rgba(0,212,170,0.08);--teal-glow:rgba(0,212,170,0.18);--red:#ff4d4d;--red-dim:rgba(255,77,77,0.10);--amber:#f0a500;--amber-dim:rgba(240,165,0,0.10);--blue:#58a6ff;--blue-dim:rgba(88,166,255,0.10);--text:#e6edf3;--text2:#8b949e;--text3:#484f58;--mono:'IBM Plex Mono',monospace;--sans:'Inter',sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+.report-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100}
+.report-logo{font-size:15px;font-weight:700;color:var(--teal);font-family:var(--mono)}
+.report-meta{color:var(--text2);font-size:12px;font-family:var(--mono)}
+.btn-primary{padding:6px 16px;background:var(--teal);color:#080c10;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn-primary:hover{background:var(--teal2)}
+.report-body{max-width:1100px;margin:0 auto;padding:40px 40px 80px}
+.report-hero{border:1px solid var(--border);border-radius:16px;background:var(--bg2);padding:40px 48px;margin-bottom:32px;position:relative;overflow:hidden}
+.report-hero::before{content:'';position:absolute;top:0;right:0;width:400px;height:400px;background:radial-gradient(circle at top right,rgba(0,212,170,0.06) 0%,transparent 70%);pointer-events:none}
+.hero-eyebrow{font-family:var(--mono);font-size:11px;color:var(--teal);letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px}
+.hero-title{font-size:28px;font-weight:700;letter-spacing:-.5px;margin-bottom:8px;line-height:1.2}
+.hero-subtitle{color:var(--text2);font-size:14px;margin-bottom:28px}
+.hero-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;margin-top:28px}
+.hero-stat{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px 20px}
+.hero-stat-val{font-size:26px;font-weight:700;font-family:var(--mono);color:var(--teal);line-height:1;margin-bottom:4px}
+.hero-stat-val.danger{color:var(--red)}.hero-stat-val.warn{color:var(--amber)}
+.hero-stat-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.08em}
+.severity-banner{border-radius:12px;padding:16px 24px;margin-bottom:32px;display:flex;align-items:center;gap:14px;border:1px solid}
+.severity-banner.critical{background:var(--red-dim);border-color:rgba(255,77,77,0.3)}
+.severity-banner.high{background:var(--amber-dim);border-color:rgba(240,165,0,0.3)}
+.severity-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;animation:pulse 2s ease-in-out infinite}
+.severity-banner.critical .severity-dot{background:var(--red)}
+.severity-banner.high .severity-dot{background:var(--amber)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,77,77,0.4)}50%{box-shadow:0 0 0 6px rgba(255,77,77,0)}}
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.chart-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px 24px}
+.chart-label{font-size:12px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px}
+.chart-wrap{position:relative;height:200px}
+.section{margin-bottom:40px}
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.section-num{font-family:var(--mono);font-size:11px;color:var(--teal);background:var(--teal-dim);border:1px solid var(--teal-glow);padding:2px 8px;border-radius:4px;letter-spacing:.06em}
+.section-title{font-size:17px;font-weight:600;letter-spacing:-.2px}
+.section-sub{color:var(--text2);font-size:12px;margin-left:auto;font-family:var(--mono)}
+.technique-list{display:flex;flex-direction:column;gap:10px}
+.technique-row{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px 18px;display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:16px}
+.technique-row.high{border-left:3px solid var(--red)}.technique-row.medium{border-left:3px solid var(--amber)}
+.technique-name{font-weight:500;font-size:13px}
+.technique-proc{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:2px}
+.badge{font-family:var(--mono);font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.badge.high{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,77,77,0.2)}
+.badge.medium{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(240,165,0,0.2)}
+.badge.info{background:var(--teal-dim);color:var(--teal);border:1px solid var(--teal-glow)}
+.badge.low{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(88,166,255,0.2)}
+.ioc-table{width:100%;border-collapse:collapse}
+.ioc-table th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);padding:0 12px 10px;border-bottom:1px solid var(--border);font-weight:500}
+.ioc-table td{padding:10px 12px;font-family:var(--mono);font-size:12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.ioc-table tr:last-child td{border-bottom:none}
+.ioc-table tr:hover td{background:var(--bg3)}
+.ioc-val{color:var(--red)}.ioc-path{color:var(--amber);word-break:break-all}.ioc-dll{color:var(--blue)}
+.tl-item{display:flex;gap:16px;margin-bottom:10px}
+.tl-line{display:flex;flex-direction:column;align-items:center;flex-shrink:0}
+.tl-dot{width:10px;height:10px;border-radius:50%;background:var(--teal);border:2px solid var(--bg);flex-shrink:0;margin-top:4px}
+.tl-dot.red{background:var(--red)}.tl-connector{width:1px;background:var(--border);flex:1;margin:4px 0}
+.tl-content{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 16px;flex:1}
+.tl-time{font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:4px}
+.tl-proc{font-weight:500;font-size:13px;margin-bottom:2px}
+.tl-detail{font-family:var(--mono);font-size:11px;color:var(--text2)}
+.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.summary-item{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px 20px}
+.summary-item-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);margin-bottom:6px}
+.summary-item-val{font-family:var(--mono);font-size:13px;color:var(--text);word-break:break-all}
+.divider{border:none;border-top:1px solid var(--border);margin:32px 0}
+.attack-grid{display:flex;flex-wrap:wrap;gap:8px}
+.attack-pill{padding:6px 14px;border-radius:6px;font-family:var(--mono);font-size:11px;border:1px solid;display:flex;align-items:center;gap:8px;background:var(--red-dim);border-color:rgba(255,77,77,0.25);color:var(--red)}
+.report-footer{border-top:1px solid var(--border);padding:24px 40px;display:flex;align-items:center;justify-content:space-between;color:var(--text2);font-size:12px;font-family:var(--mono);background:var(--bg2);margin-top:60px}
+@media print{body{background:#fff;color:#111}.report-header{position:static}.btn-primary{display:none}}
+</style>
+</head>
+<body>
+<div class="report-header">
+  <div class="report-logo">MEMFORENSICS</div>
+  <div class="report-meta">${now}</div>
+  <button class="btn-primary" onclick="window.print()">🖨 Print / Save PDF</button>
+</div>
+<div class="report-body">
+  <div class="report-hero">
+    <div class="hero-eyebrow">Volatile Memory Forensic Report</div>
+    <div class="hero-title">Memory Analysis: Threat Detection Summary</div>
+    <div class="hero-subtitle">Generated ${now}</div>
+    <div class="hero-stats">
+      <div class="hero-stat"><div class="hero-stat-val danger">${m.suspicious}</div><div class="hero-stat-label">Suspicious processes</div></div>
+      <div class="hero-stat"><div class="hero-stat-val warn">${m.regions}</div><div class="hero-stat-label">Private exec regions</div></div>
+      <div class="hero-stat"><div class="hero-stat-val">${m.totalProc}</div><div class="hero-stat-label">Processes scanned</div></div>
+      <div class="hero-stat"><div class="hero-stat-val danger">${iocIPs.size}</div><div class="hero-stat-label">C2 IPs found</div></div>
+      <div class="hero-stat"><div class="hero-stat-val warn">${m.confirmed}</div><div class="hero-stat-label">Exec confirmed</div></div>
+      <div class="hero-stat"><div class="hero-stat-val">${m.events}</div><div class="hero-stat-label">Timeline events</div></div>
+    </div>
+  </div>
+
+  <div class="severity-banner ${sevClass}">
+    <div class="severity-dot"></div>
+    <div>${sevText}</div>
+  </div>
+
+  <div class="charts-row">
+    <div class="chart-card"><div class="chart-label">Event type breakdown</div><div class="chart-wrap"><canvas id="rTechChart"></canvas></div></div>
+    <div class="chart-card"><div class="chart-label">ATT&amp;CK technique coverage</div><div class="chart-wrap"><canvas id="rAttackChart"></canvas></div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><div class="section-num">01</div><div class="section-title">Suspicious Processes</div><div class="section-sub">${flagged.length} flagged</div></div>
+    <div class="technique-list">
+      ${flagged.map(p => `<div class="technique-row high"><div><div class="technique-name">${p.name||'unknown'}</div><div class="technique-proc">PID ${p.pid} · PPID ${p.ppid??'—'} · ${p.path||'no path'}</div></div><div class="badge high">Suspicious</div></div>`).join('') || '<p style="color:var(--text2);padding:12px 0">No suspicious processes flagged.</p>'}
+    </div>
+  </div>
+  <hr class="divider"/>
+
+  <div class="section">
+    <div class="section-header"><div class="section-num">02</div><div class="section-title">ATT&amp;CK Techniques Mapped</div></div>
+    <div class="attack-grid">
+      <div class="attack-pill">T1055.001 — Process Injection: DLL Injection</div>
+      <div class="attack-pill">T1218.011 — Signed Binary Proxy: Rundll32</div>
+      <div class="attack-pill">T1071.001 — Application Layer Protocol</div>
+      <div class="attack-pill">T1059.001 — PowerShell Execution</div>
+    </div>
+  </div>
+  <hr class="divider"/>
+
+  <div class="section">
+    <div class="section-header"><div class="section-num">03</div><div class="section-title">Private Executable Regions</div><div class="section-sub">${m.regions} total · ${m.confirmed} exec confirmed</div></div>
+    <table class="ioc-table">
+      <thead><tr><th>PID</th><th>Process</th><th>Base Address</th><th>Size</th><th>Permissions</th><th>Status</th></tr></thead>
+      <tbody>
+        ${regs.slice(0,30).map(r => `<tr><td class="ioc-val">${r.pid??'—'}</td><td>${r.name||'—'}</td><td class="ioc-path">${r.base||'—'}</td><td>${r.size!=null?fmtBytes(r.size):'—'}</td><td>${r.perms||'—'}</td><td>${confirmed.some(c=>String(c.pid)===String(r.pid))?'<span class="badge high">EXEC CONFIRMED</span>':'<span class="badge info">idle</span>'}</td></tr>`).join('') || '<tr><td colspan="6" style="color:var(--text2);text-align:center;padding:20px">No regions data</td></tr>'}
+      </tbody>
+    </table>
+  </div>
+  <hr class="divider"/>
+
+  <div class="section">
+    <div class="section-header"><div class="section-num">04</div><div class="section-title">Execution Timeline</div><div class="section-sub">${m.events} events</div></div>
+    ${tl.slice(0,15).map((e,i) => {
+      const isSusp = susp.has(String(e.pid));
+      const isLast = i === Math.min(tl.length,15)-1;
+      return `<div class="tl-item"><div class="tl-line"><div class="tl-dot ${isSusp?'red':''}"></div>${!isLast?'<div class="tl-connector"></div>':''}</div><div class="tl-content"><div class="tl-time">${e.time||'—'}</div><div class="tl-proc">${e.name||e.type||'event'} <span style="color:var(--text2);font-weight:400">· PID ${e.pid??'—'}</span></div><div class="tl-detail">${e.addr||''} ${e.size!=null?'· '+fmtBytes(e.size):''}</div></div></div>`;
+    }).join('') || '<p style="color:var(--text2);padding:12px 0">No timeline data.</p>'}
+  </div>
+  <hr class="divider"/>
+
+  <div class="section">
+    <div class="section-header"><div class="section-num">05</div><div class="section-title">Memory Image Summary</div></div>
+    <div class="summary-grid">
+      <div class="summary-item"><div class="summary-item-label">Filename</div><div class="summary-item-val">${s?.filename||'—'}</div></div>
+      <div class="summary-item"><div class="summary-item-label">Image size</div><div class="summary-item-val">${s?.size!=null?fmtBytes(s.size):'—'}</div></div>
+      <div class="summary-item"><div class="summary-item-label">Architecture</div><div class="summary-item-val">${s?.arch||'—'}</div></div>
+      <div class="summary-item"><div class="summary-item-label">Acquired</div><div class="summary-item-val">${s?.time||'—'}</div></div>
+      <div class="summary-item"><div class="summary-item-label">MD5</div><div class="summary-item-val">${s?.md5||'—'}</div></div>
+      <div class="summary-item" style="grid-column:1/-1"><div class="summary-item-label">SHA-256</div><div class="summary-item-val">${s?.sha256||'—'}</div></div>
+    </div>
+  </div>
+</div>
+<div class="report-footer">
+  <span>MemForensics Volatile Memory Analysis Pipeline</span>
+  <span>Generated ${now}</span>
+</div>
+<script>
+Chart.defaults.color='#8b949e';
+Chart.defaults.font.family='Inter,sans-serif';
+Chart.defaults.borderColor='rgba(255,255,255,0.06)';
+new Chart(document.getElementById('rTechChart'),{type:'doughnut',data:{labels:${techLabels},datasets:[{data:${techValues},backgroundColor:['#ff4d4d','#f0a500','#58a6ff','#00d4aa','#a78bfa'],borderWidth:0,hoverOffset:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8b949e',font:{size:11},padding:12,boxWidth:10}}}}});
+new Chart(document.getElementById('rAttackChart'),{type:'bar',data:{labels:${attackLabels},datasets:[{data:${attackValues},backgroundColor:'#ff4d4d',borderRadius:4,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#8b949e',font:{size:11}}},y:{grid:{display:false},ticks:{color:'#8b949e',font:{size:11}}}}}});
+<\/script>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+});
+
+/* =========================================================
+   SCROLL SPY NAV
+   ========================================================= */
+const navLinks = document.querySelectorAll('nav.side a');
+const sections = [...document.querySelectorAll('main section')];
+const spy = new IntersectionObserver((entries) => {
+  entries.forEach(en => {
+    if (en.isIntersecting) {
+      navLinks.forEach(a => a.classList.toggle('active', a.dataset.sec === en.target.id));
+    }
+  });
+}, { rootMargin: '-40% 0px -55% 0px' });
+sections.forEach(s => spy.observe(s));
+
+/* init empty state */
+renderAll();
+</script>
+  <!-- ==================== CYBER FORENSICS LOADING (Slower Spin) ==================== -->
+<div id="loader" class="loader-overlay">
+  <div class="loader-content">
+    <div class="logo-spinner"></div>
+    <p class="loading-text">MemForensics</p>
+    <div class="loading-bar"></div>
+  </div>
+</div>
+
+<style>
+  .loader-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: opacity 1s ease;
+  }
+
+  .loader-content { text-align: center; }
+
+  .logo-spinner {
+    width: 100px;
+    height: 100px;
+    margin: 0 auto 25px;
+    border-radius: 50%;
+    background-image: url('ashel.png');
+    background-size: cover;
+    background-position: center;
+    box-shadow: 0 0 50px rgba(0, 212, 255, 0.8);
+    animation: spin 2s linear infinite;   /* ← Slower spin */
+  }
+
+  .loading-text {
+    color: var(--accent);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 25px;
+    text-shadow: 0 0 15px rgba(0, 212, 255, 0.6);
+  }
+
+  .loading-bar {
+    width: 240px;
+    height: 5px;
+    background: rgba(255,255,255,0.1);
+    margin: 0 auto;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+
+  .loading-bar::after {
+    content: '';
+    display: block;
+    width: 35%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #00d4ff);
+    animation: loading 1.8s infinite ease-in-out;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes loading {
+    0% { transform: translateX(-180%); }
+    100% { transform: translateX(450%); }
+  }
+
+  /* Shredding Effect */
+  .loader-overlay.hide {
+    animation: shredOut 1.2s forwards;
+  }
+
+  @keyframes shredOut {
+    0% { opacity: 1; transform: scale(1); }
+    40% { opacity: 0.9; }
+    100% { opacity: 0; transform: scale(0.95); filter: blur(8px); }
+  }
+</style>
+
+<script>
+  let startTime = Date.now();
+
+  window.addEventListener('load', () => {
+    const loader = document.getElementById('loader');
+    if (!loader) return;
+
+    const elapsed = Date.now() - startTime;
+    const minTime = 5500;
+    const remaining = Math.max(0, minTime - elapsed);
+
+    setTimeout(() => {
+      loader.classList.add('hide');
+      setTimeout(() => {
+        loader.style.display = 'none';
+      }, 1300);
+    }, remaining);
+  });
+
+    // =========================================================
+// DESKTOP APP INTEGRATION — auto-load JSON files from MemForensics Studio
+// =========================================================
+let __memAutoLoaded = false;
+window.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || data.type !== 'MEMFORENSICS_AUTO_LOAD') return;
+  if (__memAutoLoaded) return; // idempotent: apply the payload exactly once (no duplicate chips)
+
+  const files = data.files; // { '01_memory_evidence': {...}, '02_os_structures': {...}, etc }
+  if (!files) return;
+
+  // Map engine file keys to engine detection keys
+  const keyMap = {
+    '01_memory_evidence': 'e1',
+    '02_os_structures': 'e2',
+    '03_private_exec_regions': 'e3',
+    '04_execution_evidence': 'e4',
+    '05_execution_timeline': 'e5',
+    '06_classification': 'e6',
+  };
+
+  let loaded = 0;
+  for (const [fileKey, json] of Object.entries(files)) {
+    const engKey = keyMap[fileKey];
+    if (engKey && json) {
+      DATA[engKey] = json;
+      addChip(fileKey + '.json', engKey);
+      loaded++;
+    }
+  }
+
+  // Surface any expected engine output that was missing or unparseable, so a
+  // gap in the pipeline run is visible at a glance rather than silently absent.
+  const issues = Array.isArray(data.issues) ? data.issues : [];
+  for (const it of issues) {
+    if (!it || !it.name) continue;
+    const chip = el('span', 'file-chip');
+    chip.style.borderColor = 'var(--amber)';
+    chip.style.color = 'var(--amber)';
+    chip.textContent = '\u26A0 ' + it.name + '.json \u2014 ' + (it.reason || 'missing');
+    $('#filesList').appendChild(chip);
+  }
+
+  if (loaded > 0 || issues.length > 0) {
+    __memAutoLoaded = true;
+    if (loaded > 0) {
+      renderAll();
+      // Scroll to pipeline section
+      document.getElementById('pipeline')?.scrollIntoView({ behavior: 'smooth' });
+    }
+    // Acknowledge receipt so the host can stop retrying.
+    try { window.parent && window.parent.postMessage({ type: 'MEMFORENSICS_LOADED', count: loaded, issues: issues.length }, '*'); } catch (e) {}
+  }
+});
+
+// Tell the host (MemForensics Studio) we are ready to receive the auto-load payload.
+// Harmless on the public website, where no parent is listening.
+try { window.parent && window.parent !== window && window.parent.postMessage({ type: 'MEMFORENSICS_READY' }, '*'); } catch (e) {}
+</script>
+</body>
+</html>

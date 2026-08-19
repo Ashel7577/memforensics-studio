@@ -1,9 +1,9 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { Download, ArrowLeft, FileText, FileJson, Globe, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { JSON_ANALYZER_URL } from '../lib/constants';
+import { JSON_ANALYZER_LOCAL_URL } from '../lib/constants';
 
 export default function Report() {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +13,9 @@ export default function Report() {
   const [showAnalyzer, setShowAnalyzer] = useState(false);
    const iframeRef = useRef<HTMLIFrameElement>(null);
   const dataSentRef = useRef(false);
+  const filesRef = useRef<{ files: Record<string, any>; issues: { name: string; reason: string }[] } | null>(null);
+  const ackedRef = useRef(false);
+  const retryRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!jobId) return;
@@ -30,16 +33,16 @@ export default function Report() {
       '05_execution_timeline', '06_classification',
     ];
     const files: Record<string, any> = {};
+    const issues: { name: string; reason: string }[] = [];
     for (const name of jsonFiles) {
+      const artifact = artifacts.find(a => a.filename.startsWith(name));
+      if (!artifact) { issues.push({ name, reason: 'missing' }); continue; }
       try {
-        const artifact = artifacts.find(a => a.filename.startsWith(name));
-        if (artifact) {
-          const c = await invoke<string>('read_file', { path: artifact.path });
-          files[name] = JSON.parse(c);
-        }
-      } catch {}
+        const c = await invoke<string>('read_file', { path: artifact.path });
+        files[name] = JSON.parse(c);
+      } catch { issues.push({ name, reason: 'parse error' }); }
     }
-    return files;
+    return { files, issues };
   };
 
   const openPDF = async () => {
@@ -50,23 +53,70 @@ export default function Report() {
     } catch { toast.error('Failed to open PDF'); }
   };
 
-    const openAnalyzer = async () => {
+  // Post the parsed engine outputs into the analyzer iframe. Safe to call
+  // repeatedly: the analyzer applies the payload exactly once and acks back,
+  // and we stop as soon as that ack arrives.
+  const postToAnalyzer = useCallback(() => {
+    if (ackedRef.current) return;
+    const data = filesRef.current;
+    if (!data) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'MEMFORENSICS_AUTO_LOAD', files: data.files, issues: data.issues }, '*'
+    );
+  }, []);
+
+  const openAnalyzer = () => {
+    ackedRef.current = false;
     dataSentRef.current = false;
+    filesRef.current = null;
     setShowAnalyzer(true);
     toast.success('Loading JSON Analyzer — auto-loading pipeline outputs...');
   };
-    const handleIframeLoad = async () => {
+
+  // Read + parse the six engine JSON files once the iframe has loaded, then
+  // hand them to the delivery loop below.
+  const handleIframeLoad = async () => {
     try {
       if (dataSentRef.current) return;
-      const files = await loadAnalyzerData(artifacts);
       dataSentRef.current = true;
-      setTimeout(() => {
-        iframeRef.current?.contentWindow?.postMessage(
-          { type: 'MEMFORENSICS_AUTO_LOAD', files }, '*'
-        );
-      }, 1500);
+      filesRef.current = await loadAnalyzerData(artifacts);
+      postToAnalyzer(); // in case the iframe's READY ping fired before we listened
     } catch {}
   };
+
+  // Guaranteed delivery: send when the analyzer says it is READY, keep retrying
+  // on a short interval, and stop the moment it acks with LOADED. This removes
+  // the old reliance on a single fixed-delay message that could be missed.
+  useEffect(() => {
+    if (!showAnalyzer) return;
+
+    const onMessage = (event: MessageEvent) => {
+      const t = event.data?.type;
+      if (t === 'MEMFORENSICS_READY') {
+        postToAnalyzer();
+      } else if (t === 'MEMFORENSICS_LOADED') {
+        ackedRef.current = true;
+        if (retryRef.current) { clearInterval(retryRef.current); retryRef.current = null; }
+        toast.success(`Analyzer loaded ${event.data?.count ?? ''} engine outputs`.trim());
+      }
+    };
+    window.addEventListener('message', onMessage);
+
+    let attempts = 0;
+    retryRef.current = window.setInterval(() => {
+      attempts += 1;
+      if (ackedRef.current || attempts > 40) { // ~20s ceiling
+        if (retryRef.current) { clearInterval(retryRef.current); retryRef.current = null; }
+        return;
+      }
+      postToAnalyzer();
+    }, 500);
+
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (retryRef.current) { clearInterval(retryRef.current); retryRef.current = null; }
+    };
+  }, [showAnalyzer, postToAnalyzer]);
 
   const downloadArtifact = async (path: string) => {
     try {
@@ -108,13 +158,13 @@ export default function Report() {
             <span className="text-primary text-sm font-semibold">JSON Analyzer</span>
             <div className="flex items-center gap-3">
               <span className="text-muted text-xs">Auto-loading all 6 engine outputs...</span>
-<button onClick={() => { setShowAnalyzer(false); dataSentRef.current = false; }} className="text-muted hover:text-primary">                <X className="w-4 h-4" />
+<button onClick={() => { setShowAnalyzer(false); dataSentRef.current = false; ackedRef.current = false; }} className="text-muted hover:text-primary">                <X className="w-4 h-4" />
               </button>
             </div>
           </div>
           <iframe
             ref={iframeRef}
-            src={JSON_ANALYZER_URL}
+            src={JSON_ANALYZER_LOCAL_URL}
             className="w-full"
             style={{ height: '85vh', border: 'none' }}
             title="JSON Analyzer"
