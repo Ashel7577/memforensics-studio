@@ -33,3 +33,12 @@ src-tauri/engines/vol.exe
 src-tauri/engines/__pycache__/
 src-tauri/engines/vol_bundle/build/
 src-tauri/engines/vol_bundle/dist/
+
+# Bolt.new scaffolding — not part of the project
+.bolt/
+
+# Built installers. Releases are published to GitHub Releases; committing
+# copies here is how the landing page ended up advertising a stale 0.1.0.
+landing/*.dmg
+landing/*.msi
+landing/*.exe
