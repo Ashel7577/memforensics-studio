@@ -1172,6 +1172,206 @@ def run_malfind_reference_scan(memory_path: Path) -> List[Dict[str, Any]]:
     return hits
 
 
+
+# ── Whole-dump memory string scan (URL / C2 gate path recovery) ──────────────
+# Byte-level string extraction in enrich_private_exec_vads_with_byte_analysis()
+# only ever sees private-EXECUTABLE VADs, because those are the only regions
+# `vadinfo --dump` is asked for. A stealer's C2 URL almost never lives there:
+# it sits in the process heap or in a .data/.rdata section of the mapped image,
+# both of which are non-executable and therefore invisible to that pass. That
+# is why a dump containing "http://<c2-ip>/store/games/index.php" produced zero
+# URLs in the report while still resolving the C2 IP:port from netscan.
+#
+# This stage closes that gap with Volatility 3's windows.vadregexscan, which
+# walks EVERY committed VAD of EVERY process and regex-matches the raw bytes,
+# so it is not restricted to executable memory. It is one whole-dump pass per
+# pattern (a handful of seconds each on a typical 4 GB image), and it keeps the
+# architecture invariant intact: raw memory is still touched only by Engine 2,
+# and downstream engines consume the JSON it emits.
+#
+# Note yarascan is deliberately not used — it needs yara-python, which is an
+# optional Volatility dependency and is absent from the bundled interpreter.
+# vadregexscan is pure Python and always available.
+
+MEMORY_STRING_PATTERNS = {
+    # Full URLs (http/https/ftp) — the primary target of this stage.
+    "urls": r"(?:https?|ftp)://[!-~]{4,300}",
+    # Bare server-side gate paths, for families that build the URL at runtime
+    # from a separate host string and therefore never hold a full URL in memory.
+    "http_paths": r"/[A-Za-z0-9_./\-]{2,80}\.(?:php|asp|aspx|jsp|cgi)",
+    # Named kernel objects — malware infection-guard mutexes are a strong
+    # family-identification artifact and are cheap to collect in the same pass.
+    "mutexes": r"(?:Global|Local)\\[A-Za-z0-9_.\-{}]{4,80}",
+}
+
+# Substrings that mark a hit as OS/browser/vendor background noise rather than
+# an indicator. Applied only to the report-facing "notable" summary — the full
+# per-process hit list is always preserved so nothing is silently lost.
+_STRING_SCAN_NOISE = (
+    "microsoft.com", "windows.com", "windowsupdate.com", "msn.com", "bing.com",
+    "live.com", "office.com", "office.net", "azure.com", "azureedge.net",
+    "w3.org", "adobe.com", "purl.org", "xmlsoap.org", "openxmlformats.org",
+    "schemas.android.com", "mozilla.org", "google.com", "gstatic.com",
+    "googleapis.com", "digicert.com", "verisign.com", "globalsign",
+    "sectigo.com", "entrust.net", "symantec.com", "thawte.com", "certum",
+    "apple.com", "nginx.org", "openssl.org", "gnu.org", "python.org",
+    "sourceforge.net", "github.com", "skype.com", "msedge.net", "msecnd.net",
+    "trafficmanager.net", "akamai", "edgekey.net", "godaddy.com", "amazontrust",
+)
+
+
+# A URL whose host is a dotted-quad rather than a name — see the notable-URL
+# selection in run_memory_string_scan() for why this is the primary signal.
+_IP_HOST_URL_RE = re.compile(
+    r"^(?:https?|ftp)://(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:[/?#]|$)"
+)
+# A URL that ends in a server-side script — a C2 "gate" endpoint.
+_SCRIPT_PATH_RE = re.compile(r"\.(?:php|asp|aspx|jsp|cgi)(?:$|[?#/])", re.IGNORECASE)
+
+
+def _decode_regexscan_row(row: str, pattern: "re.Pattern") -> Optional[Dict[str, Any]]:
+    """
+    Parse one windows.vadregexscan output row into {pid, process, offset, value}.
+
+    The renderer's "Text" column is a lossy fixed-width preview (non-printable
+    bytes become spaces, and it can bleed past the match), so the authoritative
+    value is recovered from the "Hex" column instead: decode the bytes, then
+    re-apply the same pattern to them and keep the exact match.
+    """
+    fields = row.split("\t")
+    if len(fields) < 5:
+        fields = row.split(None, 4)
+    if len(fields) < 5 or not fields[0].strip().isdigit():
+        return None
+
+    pid = int(fields[0].strip())
+    process = fields[1].strip()
+    offset = fields[2].strip()
+    hex_blob = fields[4].strip()
+
+    try:
+        data = bytes.fromhex(hex_blob.replace(" ", ""))
+    except ValueError:
+        return None
+
+    text = data.decode("ascii", errors="ignore")
+    m = pattern.search(text)
+    if not m:
+        return None
+    value = m.group(0).rstrip('\x00 \t\r\n"\'<>)')
+    if not value:
+        return None
+    return {"pid": pid, "process": process, "offset": offset, "value": value}
+
+
+def run_memory_string_scan(memory_path: Path, processes: List[Dict[str, Any]],
+                           timeout: int = 600) -> Dict[str, Any]:
+    """
+    Regex-scan every process's committed VAD memory for IOC-bearing strings and
+    attach the results both per-process (proc["memory_strings"]) and as a
+    whole-dump summary (returned dict, stored as structures["memory_string_scan"]).
+
+    Non-fatal end to end: any pattern whose vol invocation fails or times out is
+    recorded as failed and the rest still run, because a missing string scan
+    must never take down an otherwise complete Engine 2 run.
+    """
+    summary: Dict[str, Any] = {
+        "scan_performed": False,
+        "plugin": "windows.vadregexscan",
+        "patterns": dict(MEMORY_STRING_PATTERNS),
+        "categories": {},
+        "unique_values": {},
+        "notable_urls": [],
+        "errors": [],
+    }
+    by_pid: Dict[int, Dict[str, List[str]]] = {}
+
+    for category, pattern_str in MEMORY_STRING_PATTERNS.items():
+        compiled = re.compile(pattern_str)
+        try:
+            result = subprocess.run(
+                [VOL_BIN, "-q", "-f", str(memory_path),
+                 "windows.vadregexscan", "--pattern", pattern_str],
+                capture_output=True, text=True, **VOL_RUN_KW, timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            msg = f"{category}: vadregexscan timed out after {timeout}s"
+            print(f"    ⚠️  {msg}")
+            summary["errors"].append(msg)
+            continue
+        except Exception as e:
+            msg = f"{category}: vadregexscan raised {e}"
+            print(f"    ⚠️  {msg}")
+            summary["errors"].append(msg)
+            continue
+
+        if result.returncode != 0:
+            msg = (f"{category}: vadregexscan exited {result.returncode}: "
+                   f"{(result.stderr or result.stdout or '').strip()[-300:]}")
+            print(f"    ⚠️  {msg}")
+            summary["errors"].append(msg)
+            continue
+
+        summary["scan_performed"] = True
+        hits: List[Dict[str, Any]] = []
+        seen = set()
+        for line in result.stdout.splitlines():
+            parsed = _decode_regexscan_row(line, compiled)
+            if not parsed:
+                continue
+            key = (parsed["pid"], parsed["value"])
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append(parsed)
+            by_pid.setdefault(parsed["pid"], {}).setdefault(category, []).append(parsed["value"])
+
+        summary["categories"][category] = hits
+        summary["unique_values"][category] = sorted({h["value"] for h in hits})
+        print(f"    ✓ {category}: {len(hits)} hit(s) across "
+              f"{len({h['pid'] for h in hits})} process(es)")
+
+    # Notable URLs = the shortlist Engine 6 promotes into C2 intelligence.
+    # A plain "not a vendor domain" filter is far too loose here — a live
+    # desktop holds hundreds of half-overwritten URL fragments in browser and
+    # shell heaps — so a hit only qualifies on one of two much stronger signals:
+    #   (a) the host is a bare IPv4 literal. Legitimate software addresses
+    #       services by name; hardcoding a dotted-quad is the classic
+    #       commodity-stealer C2 pattern, and it is exactly how the RedLine
+    #       gate URL presents itself.
+    #   (b) the path ends in a server-side script (.php/.asp/.jsp/.cgi) AND the
+    #       host is not a known vendor domain — i.e. a check-in "gate".
+    for h in summary["categories"].get("urls", []):
+        value = h["value"]
+        low = value.lower()
+        # Regex/format-template literals ("https://.*?\\.example\\.com/",
+        # "http://%s/%d") sit in memory as ordinary strings but are patterns,
+        # not addresses — they are never a real indicator.
+        if any(tok in value for tok in (".*", "\\.", "%s", "%d", "{0}", "<", ">")):
+            continue
+        is_ip_host = bool(_IP_HOST_URL_RE.match(value))
+        is_gate = bool(_SCRIPT_PATH_RE.search(value)) and not any(
+            noise in low for noise in _STRING_SCAN_NOISE
+        )
+        if is_ip_host or is_gate:
+            summary["notable_urls"].append(
+                {**h, "reason": "bare_ip_host" if is_ip_host else "server_side_gate_path"}
+            )
+
+    for proc in processes:
+        buckets = by_pid.get(proc.get("pid"))
+        if buckets:
+            proc["memory_strings"] = {
+                k: sorted(set(v))[:200] for k, v in buckets.items()
+            }
+            proc["memory_strings"]["total_hits"] = sum(len(v) for v in buckets.values())
+
+    if summary["notable_urls"]:
+        print(f"    ✓ {len(summary['notable_urls'])} non-vendor URL(s) flagged as notable")
+    return summary
+
+
+
 def extract_vads_for_process(memory_path: Path, pid: int) -> List[Dict[str, Any]]:
     """Extract VAD regions for a specific process"""
 
@@ -2304,6 +2504,14 @@ def main():
         print("\n🔎 Running malfind reference scan (whole-dump, once)...")
         malfind_reference_hits = run_malfind_reference_scan(memory_path)
 
+        # Whole-dump string scan. Deliberately NOT limited to --limit/candidate
+        # PIDs: a C2 URL is just as likely to sit in the heap of a process that
+        # has no private-exec region at all, and this is a single vol pass per
+        # pattern regardless of process count, so narrowing it would cost
+        # coverage without buying speed.
+        print("\n🔤 Running whole-dump memory string scan (URLs / gate paths / mutexes)...")
+        memory_string_scan = run_memory_string_scan(memory_path, processes)
+
         # Add enrichment status without changing existing structure
         add_enrichment_status(processes, cmdlines_by_pid, modules_by_pid, threads_by_pid)
 
@@ -2372,6 +2580,7 @@ def main():
             },
             "file_artifacts": file_artifacts,
             "malfind_reference_hits": malfind_reference_hits,
+            "memory_string_scan": memory_string_scan,
         }
 
         # Output validation
@@ -2423,6 +2632,7 @@ def main():
                          "missing or incomplete. Re-run Engine 2 for a complete result."),
                 "processes": processes,
                 "malfind_reference_hits": locals().get("malfind_reference_hits", []),
+                "memory_string_scan": locals().get("memory_string_scan", {"scan_performed": False}),
             }
             try:
                 with open(output_path, 'w', encoding='utf-8') as f:

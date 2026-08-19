@@ -1341,7 +1341,7 @@ def extract_c2_intelligence(os_structures: Dict[str, Any],
         "ioc_collection": {
             "ips": [], "ip_ports": [], "unc_paths": [],
             "dlls": [], "webdav_indicators": [],
-            "registry_indicators": [], "file_indicators": []
+            "registry_indicators": [], "file_indicators": [], "urls": []
         },
         "confidence": "NONE",
         "methodology": []
@@ -1636,6 +1636,40 @@ def extract_c2_intelligence(os_structures: Dict[str, Any],
         "ngrok":     {"name": "ngrok", "technique": "T1572", "note": "Reverse proxy / tunneling service"},
         "plink":     {"name": "Plink (PuTTY)", "technique": "T1572", "note": "SSH port forwarding"},
     }
+    # Tools in PROXY_TOOLS are tunnel *helpers*, not the application the user
+    # actually installed and launched. tun2socks in particular is a library-
+    # grade component that VPN clients spawn as a child to move the system's
+    # traffic into their tunnel — naming it as "the VPN" is wrong, and it
+    # misattributes the tunnel to a bare SOCKS utility rather than to the
+    # product responsible for it. The client is the PARENT process, so every
+    # helper hit walks one level up the tree and reports both.
+    VPN_CLIENTS = {
+        "outline":    "Outline (Jigsaw/Google) VPN client",
+        "openvpn":    "OpenVPN client",
+        "wireguard":  "WireGuard client",
+        "nordvpn":    "NordVPN client",
+        "expressvpn": "ExpressVPN client",
+        "protonvpn":  "Proton VPN client",
+        "surfshark":  "Surfshark VPN client",
+        "mullvad":    "Mullvad VPN client",
+        "cyberghost": "CyberGhost VPN client",
+        "hotspotshield": "Hotspot Shield VPN client",
+        "windscribe": "Windscribe VPN client",
+        "tunnelbear": "TunnelBear VPN client",
+        "psiphon":    "Psiphon circumvention client",
+        "softether":  "SoftEther VPN client",
+        "shadowsocks": "Shadowsocks client",
+        "v2ray":      "V2Ray client",
+        "clash":      "Clash proxy client",
+        "warp":       "Cloudflare WARP client",
+    }
+    # Generic hosts that can parent anything — reaching one of these means the
+    # helper was not launched by an identifiable client, so don't name it.
+    GENERIC_PARENTS = {"services.exe", "svchost.exe", "explorer.exe", "cmd.exe",
+                       "powershell.exe", "wininit.exe", "userinit.exe", "system"}
+
+    proc_by_pid = {p.get("pid"): p for p in processes}
+
     proxy_tools_found = []
     for proc in processes:
         img = (proc.get("image_name") or "").lower()
@@ -1647,35 +1681,207 @@ def extract_c2_intelligence(os_structures: Dict[str, Any],
                     "tool": info["name"],
                     "technique": info["technique"],
                     "note": info["note"],
+                    "role": "tunnel_helper",
                     "network_connections": proc.get("network_connections", []),
                 }
+
+                # Walk up to the parent and identify the owning VPN client.
+                parent = proc_by_pid.get(proc.get("ppid"))
+                if parent:
+                    parent_img = parent.get("image_name") or ""
+                    parent_low = parent_img.lower()
+                    known = next(
+                        (desc for name, desc in VPN_CLIENTS.items() if name in parent_low),
+                        None
+                    )
+                    if known:
+                        entry["vpn_client"] = {
+                            "pid": parent.get("pid"),
+                            "process": parent_img,
+                            "product": known,
+                            "identification": "known_vpn_client_image_name",
+                            "confidence": "HIGH",
+                            "command_line": clean_text(parent.get("command_line", "")),
+                        }
+                    elif parent_low and parent_low not in GENERIC_PARENTS:
+                        entry["vpn_client"] = {
+                            "pid": parent.get("pid"),
+                            "process": parent_img,
+                            "product": f"{parent_img} (unrecognised VPN/proxy client)",
+                            "identification": "parent_of_tunnel_helper",
+                            "confidence": "MEDIUM",
+                            "command_line": clean_text(parent.get("command_line", "")),
+                        }
+
                 proxy_tools_found.append(entry)
+
+                vpn = entry.get("vpn_client")
+                if vpn:
+                    match_text = (
+                        f"VPN/proxy client '{vpn['process']}' (PID {vpn['pid']}) — "
+                        f"{vpn['product']} — spawned tunnel helper "
+                        f"'{proc.get('image_name')}' (PID {proc.get('pid')}): {info['note']}"
+                    )
+                    confidence = vpn["confidence"]
+                else:
+                    match_text = (
+                        f"Tunnel helper '{proc.get('image_name')}' "
+                        f"(PID {proc.get('pid')}) — {info['note']}; "
+                        f"no identifiable parent VPN client in this dump"
+                    )
+                    confidence = "HIGH"
                 c2_intel["threat_intel_correlation"].append({
                     "source": "Process name match",
-                    "match": f"Proxy/tunnel tool '{proc.get('image_name')}' (PID {proc.get('pid')}) — {info['note']}",
-                    "confidence": "HIGH"
+                    "match": match_text,
+                    "confidence": confidence,
                 })
     if proxy_tools_found:
         c2_intel["proxy_tools_detected"] = proxy_tools_found
+        vpn_clients_found = []
+        for pt in proxy_tools_found:
+            vpn = pt.get("vpn_client")
+            if vpn and not any(v["pid"] == vpn["pid"] for v in vpn_clients_found):
+                vpn_clients_found.append({
+                    **vpn,
+                    "tunnel_helpers": [
+                        {"pid": o.get("pid"), "process": o.get("process"), "tool": o.get("tool")}
+                        for o in proxy_tools_found
+                        if (o.get("vpn_client") or {}).get("pid") == vpn["pid"]
+                    ],
+                })
+        if vpn_clients_found:
+            c2_intel["vpn_clients_detected"] = vpn_clients_found
 
-    # 3. C2 HTTP path extraction from memory string hits in VADs
+    # 3. C2 URL / HTTP gate-path recovery from recovered memory strings.
+    #
+    # Two independent sources are merged here:
+    #   (a) Engine 2's whole-dump vadregexscan pass (os_structures
+    #       ["memory_string_scan"] and per-process ["memory_strings"]), which
+    #       covers EVERY committed VAD of every process. This is where a full
+    #       C2 URL such as "http://<ip>/store/games/index.php" is actually
+    #       found, because it lives in the payload's heap — non-executable
+    #       memory that the byte-level VAD analysis never dumps.
+    #   (b) The per-region strings Engine 2 attached to private-exec VADs under
+    #       region_analysis.strings_extracted. Note the nesting: an earlier
+    #       version of this loop read vad["strings_extracted"], a key that
+    #       never exists, so source (b) silently contributed nothing.
     C2_PATH_PATTERNS = [
         re.compile(r"/[a-zA-Z0-9_\-/]+/(?:index|gate|panel|connect|report|check|update|upload|download)\.(?:php|asp|aspx|jsp)", re.IGNORECASE),
         re.compile(r"/store/games/\S+", re.IGNORECASE),
         re.compile(r"https?://[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/\S+", re.IGNORECASE),
     ]
+    URL_HOST_RE = re.compile(r"^(?:https?|ftp)://([^/:\s]+)", re.IGNORECASE)
+
+    def _matches_c2_pattern(text):
+        return any(pat.search(text) for pat in C2_PATH_PATTERNS)
+
     c2_paths_found = []
+
+    def _record_path(text):
+        if text and text not in c2_paths_found:
+            c2_paths_found.append(text)
+
+    # IPs this dump already proved are being talked to, from netscan. A
+    # recovered URL pointing at one of them is the strongest possible
+    # corroboration: the string and the live socket agree.
+    connected_ips = set()
+    # PIDs that actually own a socket to a given host. When the same URL is
+    # recovered from several processes (AV scanners and lsass frequently hold
+    # copies of a string the malware wrote), the copy inside the process that
+    # is genuinely talking to that host is the one worth naming.
+    conn_owner_pids = {}
     for proc in processes:
+        for conn in proc.get("network_connections", []):
+            rip = conn.get("remote_ip")
+            if rip and not str(rip).startswith(("0.", "127.", "::")):
+                connected_ips.add(str(rip))
+                conn_owner_pids.setdefault(str(rip), set()).add(proc.get("pid"))
+
+    string_scan = (os_structures or {}).get("memory_string_scan") or {}
+    c2_urls = []
+    seen_urls = set()
+
+    # The same URL is routinely recovered from several processes at once — an
+    # AV engine, lsass, and the malware itself can all hold a copy of the same
+    # string. Only one entry per URL is reported, and it must be the copy found
+    # inside the process that actually owns a socket to that host, so order the
+    # candidates by that preference BEFORE de-duplicating rather than keeping
+    # whichever process the scan happened to reach first.
+    def _hit_rank(hit):
+        url = hit.get("value", "")
+        hm = URL_HOST_RE.match(url)
+        h = hm.group(1) if hm else ""
+        return (0 if hit.get("pid") in conn_owner_pids.get(h, set()) else 1,
+                0 if h in connected_ips else 1)
+
+    for hit in sorted(string_scan.get("notable_urls", []), key=_hit_rank):
+        url = hit.get("value", "")
+        if not url or url in seen_urls:
+            continue
+        host_match = URL_HOST_RE.match(url)
+        host = host_match.group(1) if host_match else ""
+        corroborated = host in connected_ips
+        owns_connection = hit.get("pid") in conn_owner_pids.get(host, set())
+        entry = {
+            "url": url,
+            "host": host,
+            "pid": hit.get("pid"),
+            "process": hit.get("process"),
+            "offset": hit.get("offset"),
+            "selection_reason": hit.get("reason", ""),
+            "matches_live_connection": corroborated,
+            "found_in_connecting_process": owns_connection,
+            # A URL recovered from memory is only HIGH confidence when an
+            # actual socket to the same host was captured in the same dump;
+            # on its own it is a strong lead, not a proven channel.
+            "confidence": "HIGH" if corroborated else "MEDIUM",
+            # Other processes whose memory held the same string, for completeness.
+            "also_found_in": sorted({
+                f"{o.get('process')} (PID {o.get('pid')})"
+                for o in string_scan.get("notable_urls", [])
+                if o.get("value") == url and o.get("pid") != hit.get("pid")
+            }),
+        }
+        seen_urls.add(url)
+        c2_urls.append(entry)
+        if corroborated or _matches_c2_pattern(url):
+            _record_path(url)
+        if corroborated:
+            c2_intel["threat_intel_correlation"].append({
+                "source": "Memory string / network correlation",
+                "match": (f"URL '{url}' recovered from {hit.get('process')} "
+                          f"(PID {hit.get('pid')}) memory resolves to {host}, "
+                          f"which this dump also shows an active connection to"),
+                "confidence": "HIGH",
+            })
+
+    if c2_urls:
+        # Corroborated URLs first — that is the order the report renders them in.
+        c2_urls.sort(key=lambda e: (not e["found_in_connecting_process"],
+                                    not e["matches_live_connection"], e["url"]))
+        c2_intel["c2_urls"] = c2_urls
+        for entry in c2_urls:
+            ind = {"url": entry["url"], "host": entry["host"],
+                   "pid": entry["pid"], "process": entry["process"],
+                   "confidence": entry["confidence"]}
+            if ind not in c2_intel["ioc_collection"]["urls"]:
+                c2_intel["ioc_collection"]["urls"].append(ind)
+
+    # Bare gate paths (no host) from the same scan, plus per-process buckets.
+    for hit in string_scan.get("categories", {}).get("http_paths", []):
+        text = hit.get("value", "")
+        if _matches_c2_pattern(text):
+            _record_path(text)
+    for proc in processes:
+        for text in (proc.get("memory_strings") or {}).get("urls", []):
+            if _matches_c2_pattern(text):
+                _record_path(text)
         for vad in proc.get("vads", []):
-            strings = vad.get("strings_extracted", {})
-            for url in strings.get("urls", []):
-                for pat in C2_PATH_PATTERNS:
-                    if pat.search(url) and url not in c2_paths_found:
-                        c2_paths_found.append(url)
-            for s in strings.get("file_paths", []):
-                for pat in C2_PATH_PATTERNS:
-                    if pat.search(s) and s not in c2_paths_found:
-                        c2_paths_found.append(s)
+            strings = (vad.get("region_analysis") or {}).get("strings_extracted", {})
+            for text in strings.get("urls", []) + strings.get("file_paths", []):
+                if _matches_c2_pattern(text):
+                    _record_path(text)
+
     if c2_paths_found:
         c2_intel["c2_http_paths"] = c2_paths_found
 
@@ -2542,12 +2748,20 @@ def build_proxy_tunnel_analysis(proxy_tools, os_structures):
             if remote_ip and not remote_ip.startswith(("0.", "127.", "::")):
                 tunnel_endpoints.append(f"{remote_ip}:{c.get('remote_port','?')}")
 
+        vpn = pt.get("vpn_client") or {}
         implications = [
             f"Tool: {pt.get('tool')} — {pt.get('note')}",
             "All outbound traffic from this host was tunneled through this process.",
             "C2 server logs will show the tunnel exit node IP, NOT the victim's real IP.",
             "This significantly complicates attribution and geo-location of the victim.",
         ]
+        if vpn:
+            implications.insert(1, (
+                f"VPN client responsible: {vpn.get('product')} — "
+                f"{vpn.get('process')} (PID {vpn.get('pid')}), the parent that spawned "
+                f"this helper. Subscriber records should be requested from this "
+                f"product's operator, not from the helper binary's author."
+            ))
         if tunnel_endpoints:
             implications.append(f"Tunnel exit point(s): {', '.join(tunnel_endpoints[:3])}")
             implications.append(
@@ -2559,6 +2773,8 @@ def build_proxy_tunnel_analysis(proxy_tools, os_structures):
             "tool": pt.get("tool"),
             "pid": pid,
             "process": pt.get("process"),
+            "role": pt.get("role", "tunnel_helper"),
+            "vpn_client": vpn or None,
             "mitre_technique": pt.get("technique"),
             "tunnel_endpoints": tunnel_endpoints,
             "forensic_implications": implications,
@@ -2965,7 +3181,16 @@ def build_forensic_narrative(user_attr, c2_intel, mitre_chain, classifications, 
                 # for this C2 server, not a hardcoded "WebDAV/HTTP" that used
                 # to appear even when c2_ip was "Unknown".
                 "c2_protocol": c2_protocol if has_c2 else "Unknown",
-                "c2_path": f"\\\\{c2_ip}@{c2_port}\\{c2_share}\\" if has_c2 and c2_share else "Unknown"
+                "c2_path": f"\\\\{c2_ip}@{c2_port}\\{c2_share}\\" if has_c2 and c2_share else "Unknown",
+                # Full C2 URL recovered from process memory (Engine 2's
+                # whole-dump string scan). Distinct from c2_path, which is the
+                # UNC/WebDAV form some families use instead.
+                "c2_url": (c2_intel.get("c2_urls") or [{}])[0].get("url", "Unknown"),
+                # Only URLs corroborated by a live socket in this same dump are
+                # promoted to the IOC summary — uncorroborated hits stay in the
+                # full c2_urls list in Section 3B.3b with their MEDIUM label.
+                "c2_urls": [e.get("url") for e in (c2_intel.get("c2_urls") or [])
+                            if e.get("matches_live_connection")][:10],
             },
             "file_iocs": {
                 "dll_name": payload_filename,

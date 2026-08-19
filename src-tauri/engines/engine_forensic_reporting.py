@@ -559,7 +559,22 @@ def build_executive_summary(story, pipeline, summary, details):
         or (c2.get("remote_payload_paths") or [None])[0]
         or "Not recovered"
     )
-    proxy    = ", ".join(pt.get("tool", "") for pt in c2.get("proxy_tools_detected", [])[:2]) or "None detected"
+    # Report the VPN CLIENT (the parent application) as the tunnel owner, with
+    # the helper it spawned in parentheses — naming the helper alone (e.g.
+    # "tun2socks") attributes the tunnel to a library component rather than to
+    # the product the user actually ran.
+    _proxy_bits = []
+    for pt in c2.get("proxy_tools_detected", [])[:2]:
+        _vpn = pt.get("vpn_client") or {}
+        if _vpn.get("process"):
+            _proxy_bits.append(
+                f"{_vpn['process']} (PID {_vpn.get('pid')}) via {pt.get('tool', '')}"
+            )
+        else:
+            _proxy_bits.append(pt.get("tool", ""))
+    proxy    = ", ".join(b for b in _proxy_bits if b) or "None detected"
+    vpn_clients = c2.get("vpn_clients_detected", [])
+    c2_url_exec = ((c2.get("c2_urls") or [{}])[0]).get("url", "")
     cred_sum = (cls.get("credential_exposure") or {}).get("summary", "")
     dump_hash = coc.get("memory_dump_sha256", "Not computed")
 
@@ -569,9 +584,11 @@ def build_executive_summary(story, pipeline, summary, details):
         ["Malware Family",      family],
         ["Victim User",         user],
         ["C2 Server",           f"{c2_ip}:{c2_port}" if c2_port else c2_ip],
+        ["C2 URL",              Paragraph(clean(c2_url_exec) if c2_url_exec
+                                          else "Not recovered from memory", S["small"])],
         ["Payload Path",        Paragraph(clean(payload), S["small"])],
         ["Processes Infected",  str(n_proc)],
-        ["Proxy / Tunnel Tool", proxy],
+        ["VPN / Tunnel Client", Paragraph(clean(proxy), S["small"])],
         ["Credential Exposure", Paragraph(clean(cred_sum) if cred_sum else "See Section 3B.5", S["small"])],
         ["Evidence Hash",       Paragraph(dump_hash[:64], S["small"])],
     ]
@@ -721,7 +738,8 @@ def build_section1_overview(story, summary, details, pipeline):
         [Paragraph("<b>Source</b>", S["small"]), Paragraph("<b>Engine</b>", S["small"]),
          Paragraph("<b>Artifacts</b>", S["small"]), Paragraph("<b>Method</b>", S["small"])],
         ["OS Structures", "Engine 2", f"{n_procs} processes extracted", "Volatility windows.pstree/vadinfo/cmdline"],
-        ["Private Memory", "Engine 3", "Private executable RWX regions", "VAD protection type analysis"],
+        ["Private Memory", "Engine 3", "Private executable RWX regions",
+         "Per-region VAD protection constant (PAGE_EXECUTE_READWRITE etc.) — Section 3C"],
         ["Thread Correlation", "Engine 4", "Thread-to-VAD intersections", "Geometric start-address matching"],
         ["Execution Timeline", "Engine 5", f"{e5_count} timeline events", "Process creation + injection events"],
         ["Technique Attribution", "Engine 6", f"{len(cls_list)} classified processes", "Weighted signal analysis + IOC correlation"],
@@ -1146,6 +1164,41 @@ def build_section_infection_analysis(story, pipeline, details):
         story.append(make_table(cp_data, col_widths=[0.4 * inch, 5.6 * inch]))
         story.append(Spacer(1, 0.1 * inch))
 
+    # --- 3B.3b Full C2 URLs recovered from process memory ---
+    # Engine 2 regex-scans every committed VAD of every process, so this
+    # reaches non-executable heap and .rdata memory where a stealer's
+    # hardcoded check-in URL actually lives — memory the private-exec VAD
+    # byte analysis never sees.
+    c2_urls = c2.get("c2_urls") or []
+    if c2_urls:
+        story.append(Paragraph("3B.3b C2 URLs Recovered from Process Memory", S["h2"]))
+        story.append(Paragraph(
+            "Full URLs carved out of process memory by whole-dump regular-expression "
+            "scanning of every committed virtual address descriptor. A URL is listed "
+            "here when its host is a bare IPv4 literal (the hallmark of hardcoded "
+            "commodity-stealer infrastructure) or when it targets a server-side script "
+            "endpoint on a non-vendor host. Entries marked HIGH are corroborated by a "
+            "live socket to the same host captured in this same dump.",
+            S["body"]
+        ))
+        cu_data = [[Paragraph("<b>URL</b>", S["small"]),
+                    Paragraph("<b>Host</b>", S["small"]),
+                    Paragraph("<b>Found In</b>", S["small"]),
+                    Paragraph("<b>Confidence</b>", S["small"])]]
+        for u in c2_urls[:20]:
+            cu_data.append([
+                Paragraph(clean(u.get("url", "")), S["small"]),
+                Paragraph(clean(u.get("host", "")), S["small"]),
+                Paragraph(clean(
+                    f"{u.get('process', '')} (PID {u.get('pid', '')})"
+                    + (f"; also in {', '.join(u.get('also_found_in') or [])}"
+                       if u.get("also_found_in") else "")
+                ), S["small"]),
+                Paragraph(clean(str(u.get("confidence", ""))), S["small"]),
+            ])
+        story.append(make_table(cu_data, col_widths=[2.6 * inch, 1.1 * inch, 1.5 * inch, 0.8 * inch]))
+        story.append(Spacer(1, 0.1 * inch))
+
     # --- 3B.4 Proxy / Tunnel Tools ---
     proxy_tools = c2.get("proxy_tools_detected", [])
     if proxy_tools:
@@ -1156,8 +1209,10 @@ def build_section_infection_analysis(story, pipeline, details):
             S["body"]
         ))
         pt_data = [
-            [Paragraph("<b>Tool</b>", S["small"]), Paragraph("<b>PID</b>", S["small"]),
-             Paragraph("<b>Process</b>", S["small"]), Paragraph("<b>MITRE</b>", S["small"]),
+            [Paragraph("<b>VPN Client (parent)</b>", S["small"]),
+             Paragraph("<b>Tunnel Helper</b>", S["small"]),
+             Paragraph("<b>PID</b>", S["small"]),
+             Paragraph("<b>MITRE</b>", S["small"]),
              Paragraph("<b>Note</b>", S["small"])]
         ]
         for pt in proxy_tools:
@@ -1166,14 +1221,32 @@ def build_section_infection_analysis(story, pipeline, details):
                 f"{c.get('remote_ip')}:{c.get('remote_port')}"
                 for c in conns[:2] if c.get("remote_ip")
             ) or ""
+            vpn = pt.get("vpn_client") or {}
+            vpn_cell = (f"{vpn.get('process')} (PID {vpn.get('pid')})"
+                        if vpn.get("process") else "Not identified")
             pt_data.append([
-                Paragraph(clean(pt.get("tool", "")), S["small"]),
+                Paragraph(clean(vpn_cell), S["small"]),
+                Paragraph(clean(f"{pt.get('process', '')} [{pt.get('tool', '')}]"), S["small"]),
                 Paragraph(str(pt.get("pid", "")), S["small"]),
-                Paragraph(clean(pt.get("process", "")), S["small"]),
                 Paragraph(clean(pt.get("technique", "")), S["small"]),
-                Paragraph(f"{pt.get('note', '')} {('→ ' + conn_str) if conn_str else ''}", S["small"]),
+                Paragraph(clean(f"{pt.get('note', '')} {('→ ' + conn_str) if conn_str else ''}"), S["small"]),
             ])
-        story.append(make_table(pt_data, col_widths=[0.9 * inch, 0.5 * inch, 1.2 * inch, 0.9 * inch, 2.5 * inch]))
+        story.append(make_table(pt_data, col_widths=[1.5 * inch, 1.5 * inch, 0.5 * inch, 0.7 * inch, 1.8 * inch]))
+        story.append(Spacer(1, 0.08 * inch))
+        for pt in proxy_tools:
+            vpn = pt.get("vpn_client") or {}
+            if vpn.get("process"):
+                story.append(Paragraph(
+                    f"<b>{clean(vpn['process'])}</b> (PID {vpn.get('pid')}) is identified as the "
+                    f"VPN client in use: it is the parent process that spawned the tunnel helper "
+                    f"<b>{clean(pt.get('process', ''))}</b> (PID {pt.get('pid')}). "
+                    f"{clean(str(vpn.get('product', '')))}. Helper binaries such as "
+                    f"{clean(pt.get('tool', ''))} do not run on their own — they are launched by "
+                    f"the VPN application to move system traffic into its tunnel, so the client "
+                    f"above is the product responsible for the observed traffic obfuscation "
+                    f"(attribution confidence: {clean(str(vpn.get('confidence', 'MEDIUM')))}).",
+                    S["body"]
+                ))
         story.append(Spacer(1, 0.1 * inch))
 
     # --- 3B.5 Data Theft Targets ---
@@ -1771,7 +1844,15 @@ def build_section7_iocs(story, pipeline, details):
         net_data.append(["Protocol", (net_iocs.get("c2_protocol") or "Unknown")])
         if net_iocs.get("c2_path"):
             net_data.append(["C2 Path (UNC)", Paragraph(clean(net_iocs["c2_path"]), S["small"])])
-    else:
+    # Full C2 URLs recovered from process memory by Engine 2's whole-dump
+    # string scan. Rendered whether or not netscan resolved a C2 IP — the URL
+    # is an independently blockable indicator either way.
+    _c2_urls = [u for u in (net_iocs.get("c2_urls") or []) if u]
+    if _c2_urls:
+        net_data.append(["C2 URL", Paragraph(clean(_c2_urls[0]), S["small"])])
+        for _extra in _c2_urls[1:5]:
+            net_data.append(["C2 URL (additional)", Paragraph(clean(_extra), S["small"])])
+    if not c2_ip_known and not _c2_urls:
         net_data.append(["C2 IP Address", Paragraph("No network IOCs extracted for this dump", S["small"])])
     
     story.append(make_table(net_data, col_widths=[2*inch, 4*inch]))
@@ -2649,7 +2730,8 @@ def build_section11_limitations(story, pipeline, summary, details):
             "Network attribution",
             "VPN/proxy tunnel active",
             "C2 IP may be exit node only",
-            f"Proxy tool(s) detected: {', '.join(pt.get('tool','') for pt in proxies)}. "
+            f"VPN/tunnel stack detected: "
+            f"{', '.join((pt.get('vpn_client') or {}).get('process') or pt.get('tool','') for pt in proxies)}. "
             "The C2 IP observed in this dump may be a VPN exit node rather than the attacker's "
             "true infrastructure. Treat C2 IP as an IOC for blocking, not as attacker attribution."
         ))
@@ -2907,6 +2989,123 @@ def _format_hex_dump(hex_str: str) -> str:
     return "<br/>".join(clean(l).replace(" ", "&nbsp;") for l in lines)
 
 
+def build_section_region_protection(story, pipeline):
+    """
+    Section 3D: per-region memory protection inventory.
+
+    Every other part of this report talks about "RWX regions" in the abstract.
+    This table prints the actual Win32 protection constant that the VAD carries
+    for each private executable region — PAGE_EXECUTE_READWRITE,
+    PAGE_EXECUTE_READ, PAGE_EXECUTE_WRITECOPY and so on — because the specific
+    constant is the evidence, not the summary word. PAGE_EXECUTE_READWRITE on
+    private, non-file-backed memory is the single most direct byte-level
+    indicator of injected code: the loader needed to write the payload and then
+    run it, and never bothered to re-protect the page afterwards.
+
+    The values come straight from Engine 3's private_exec_regions, which carries
+    the protection string Volatility read out of the VAD flags — nothing is
+    inferred or re-derived here.
+    """
+    per_data = pipeline.get("private_exec_regions") or {}
+    regions = per_data.get("private_exec_regions", [])
+    if not regions:
+        return
+
+    story.append(Paragraph("3C. MEMORY PROTECTION INVENTORY (PER VAD REGION)", S["h1"]))
+
+    # Distribution first — the reader wants the headline count of writable-and-
+    # executable pages before the per-region detail.
+    counts = {}
+    for r in regions:
+        prot = (r.get("permissions") or "UNKNOWN").upper()
+        counts[prot] = counts.get(prot, 0) + 1
+
+    PROT_MEANING = {
+        "PAGE_EXECUTE_READWRITE": (
+            "Readable, writable AND executable. Self-modifying or freshly written "
+            "code; the classic injected-shellcode protection."),
+        "PAGE_EXECUTE_WRITECOPY": (
+            "Executable with copy-on-write. Normal for mapped images, anomalous "
+            "for private memory."),
+        "PAGE_EXECUTE_READ": (
+            "Readable and executable, not writable. Consistent with code that was "
+            "written and then re-protected to hide the RWX window."),
+        "PAGE_EXECUTE": (
+            "Execute-only. Rare in practice and unusual outside deliberate "
+            "anti-analysis."),
+    }
+
+    story.append(Paragraph(
+        f"{len(regions)} private executable region(s) were recovered across this dump. "
+        "The Win32 protection constant carried by each region's VAD is listed verbatim "
+        "below.",
+        S["body"]
+    ))
+
+    dist_data = [[Paragraph("<b>Protection Constant</b>", S["small"]),
+                  Paragraph("<b>Regions</b>", S["small"]),
+                  Paragraph("<b>Forensic Meaning</b>", S["small"])]]
+    for prot, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        dist_data.append([
+            Paragraph(f"<b>{clean(prot)}</b>", S["small"]),
+            Paragraph(str(n), S["small"]),
+            Paragraph(clean(PROT_MEANING.get(prot, "Protection constant as recorded in the VAD.")),
+                      S["small"]),
+        ])
+    story.append(make_table(dist_data, col_widths=[1.9 * inch, 0.75 * inch, 3.35 * inch]))
+    story.append(Spacer(1, 0.12 * inch))
+
+    rwx_count = counts.get("PAGE_EXECUTE_READWRITE", 0)
+    if rwx_count:
+        story.append(Paragraph(
+            f"<b>{rwx_count} region(s) carry PAGE_EXECUTE_READWRITE.</b> Memory that is "
+            "simultaneously writable and executable, is private, and is backed by no file "
+            "on disk cannot have been produced by the normal image loader — the loader maps "
+            "code as PAGE_EXECUTE_WRITECOPY from a file. Writable-executable private memory "
+            "is therefore direct evidence that something wrote code into the address space "
+            "at runtime and executed it in place.",
+            S["body"]
+        ))
+        story.append(Spacer(1, 0.1 * inch))
+
+    story.append(Paragraph("3C.1 Per-Region Detail", S["h2"]))
+    reg_data = [[Paragraph("<b>PID</b>", S["small"]),
+                 Paragraph("<b>Process</b>", S["small"]),
+                 Paragraph("<b>Base Address</b>", S["small"]),
+                 Paragraph("<b>Size</b>", S["small"]),
+                 Paragraph("<b>Protection</b>", S["small"]),
+                 Paragraph("<b>VAD Type</b>", S["small"]),
+                 Paragraph("<b>Entropy</b>", S["small"])]]
+    # RWX regions first, then by PID, so the strongest evidence leads.
+    def _sort_key(r):
+        prot = (r.get("permissions") or "").upper()
+        return (0 if prot == "PAGE_EXECUTE_READWRITE" else 1, r.get("pid") or 0)
+
+    for r in sorted(regions, key=_sort_key)[:60]:
+        ra = r.get("region_analysis") or {}
+        size = r.get("size")
+        size_str = f"{size / 1024:.0f} KB" if isinstance(size, (int, float)) and size else str(size or "?")
+        reg_data.append([
+            Paragraph(str(r.get("pid", "")), S["small"]),
+            Paragraph(clean(str(r.get("process_image", ""))), S["small"]),
+            Paragraph(clean(str(r.get("base_address", ""))), S["small"]),
+            Paragraph(size_str, S["small"]),
+            Paragraph(clean(str(r.get("permissions", "UNKNOWN"))), S["small"]),
+            Paragraph(clean(str(r.get("vad_type", ""))), S["small"]),
+            Paragraph(str(ra.get("entropy", "—")), S["small"]),
+        ])
+    story.append(make_table(reg_data, col_widths=[0.45 * inch, 1.15 * inch, 1.25 * inch,
+                                                  0.6 * inch, 1.65 * inch, 0.5 * inch, 0.5 * inch]))
+    if len(regions) > 60:
+        story.append(Spacer(1, 0.06 * inch))
+        story.append(Paragraph(
+            f"Showing the first 60 of {len(regions)} regions, ordered with "
+            "PAGE_EXECUTE_READWRITE regions first.",
+            S["small"]
+        ))
+    story.append(PageBreak())
+
+
 def build_section_hex_dump(story, pipeline):
     """
     Hex dump (first 64 bytes) of each injected/suspicious memory region,
@@ -2926,7 +3125,7 @@ def build_section_hex_dump(story, pipeline):
     if not dumped:
         return
 
-    story.append(Paragraph("3C. MEMORY REGION HEX DUMPS", S["h1"]))
+    story.append(Paragraph("3D. MEMORY REGION HEX DUMPS", S["h1"]))
     story.append(Paragraph(
         "First 64 bytes of each injected/suspicious private-executable region, for "
         "manual byte-level verification of the automated entropy/PE/shellcode "
@@ -2938,8 +3137,9 @@ def build_section_hex_dump(story, pipeline):
         ra = r.get("region_analysis", {})
         story.append(Paragraph(
             f"PID {r.get('pid')} ({clean(r.get('process_image',''))}) — "
-            f"base {clean(r.get('base_address',''))}, entropy {ra.get('entropy','?')} "
-            f"({ra.get('entropy_class','?')})",
+            f"base {clean(r.get('base_address',''))}, "
+            f"protection {clean(str(r.get('permissions','UNKNOWN')))}, "
+            f"entropy {ra.get('entropy','?')} ({ra.get('entropy_class','?')})",
             S["h3"]
         ))
         story.append(Paragraph(_format_hex_dump(ra["hex_preview"]), S["code"]))
@@ -3921,6 +4121,7 @@ def generate_report(classification_path, timeline_path, output_path,
     build_section_process_lineage(story, pipeline)
     build_section3_malware_c2(story, details, pipeline)
     build_section_infection_analysis(story, pipeline, details)
+    build_section_region_protection(story, pipeline)
     build_section_hex_dump(story, pipeline)
     build_section4_user_attribution(story, pipeline, details)
     build_section4b_diamond_model(story, pipeline, details, summary)

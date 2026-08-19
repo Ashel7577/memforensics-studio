@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.3"
+version = "0.1.14"
 description = "Memory-Only Malware Forensic Reconstruction Tool"
 authors = ["Group Q"]
 license = ""
