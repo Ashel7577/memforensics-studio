@@ -8,6 +8,10 @@ on:
 jobs:
   build-macos:
     runs-on: macos-latest
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,11 +47,18 @@ jobs:
           src-tauri/engines/vol --help > /dev/null
           echo "engine + vol OK"
       - run: npm install
+      # `tauri build` runs `npm run build` itself (beforeBuildCommand), so the
+      # frontend is bundled twice; the job-level env above is what guarantees
+      # the second, authoritative bundle is the one that carries the keys.
       - run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+      - name: Verify the bundled frontend carries its configuration
+        shell: bash
+        run: |
+          if ! grep -rq "supabase.co" dist/assets; then
+            echo "Built frontend has no Supabase URL baked in — check the repository secrets."
+            exit 1
+          fi
+          echo "frontend configuration OK"
       - run: npx tauri build
       - name: List bundle output
         run: find src-tauri/target/release/bundle -type f | head -30
@@ -63,6 +74,10 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,11 +115,18 @@ jobs:
           src-tauri\engines\vol.exe --help | Out-Null
           Write-Host "engine + vol OK"
       - run: npm install
+      # `tauri build` runs `npm run build` itself (beforeBuildCommand), so the
+      # frontend is bundled twice; the job-level env above is what guarantees
+      # the second, authoritative bundle is the one that carries the keys.
       - run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+      - name: Verify the bundled frontend carries its configuration
+        shell: bash
+        run: |
+          if ! grep -rq "supabase.co" dist/assets; then
+            echo "Built frontend has no Supabase URL baked in — check the repository secrets."
+            exit 1
+          fi
+          echo "frontend configuration OK"
       - run: npx tauri build
       - uses: actions/upload-artifact@v4
         with:
