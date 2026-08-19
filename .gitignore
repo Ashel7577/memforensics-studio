@@ -42,3 +42,4 @@ src-tauri/engines/vol_bundle/dist/
 landing/*.dmg
 landing/*.msi
 landing/*.exe
+src-tauri/engines/symbols/
