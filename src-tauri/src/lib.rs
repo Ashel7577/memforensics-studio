@@ -579,9 +579,70 @@ async fn get_engine_progress(app: tauri::AppHandle, job_id: String) -> Result<Ve
 
 #[tauri::command]
 async fn get_artifacts(app: tauri::AppHandle, job_id: String) -> Result<Vec<Artifact>, String> {
-    let state = app.state::<AppState>();
-    let map = state.pipelines.lock().unwrap();
-    Ok(map.get(&job_id).map(|p| p.artifacts.clone()).unwrap_or_default())
+    // The live run registry only exists in memory, so a run opened from history
+    // after a restart has no entry here. When that happens, rebuild the artifact
+    // list by scanning the job's output directory on disk — otherwise the report
+    // and the JSON analyzer would see zero files for every historical run.
+    {
+        let state = app.state::<AppState>();
+        let map = state.pipelines.lock().unwrap();
+        if let Some(p) = map.get(&job_id) {
+            if !p.artifacts.is_empty() {
+                return Ok(p.artifacts.clone());
+            }
+        }
+    }
+
+    // Never let a caller-supplied id escape the app data directory.
+    if job_id.is_empty()
+        || !job_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Ok(vec![]);
+    }
+
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join(&job_id);
+    if !dir.is_dir() {
+        return Ok(vec![]);
+    }
+
+    let mut artifacts: Vec<Artifact> = vec![];
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let filename = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        // Skip the run-metadata sidecar; it is not an analysis output.
+        if filename == "job_meta.json" {
+            continue;
+        }
+        // Engine number is the leading `NN_` of the filename (0 for the report).
+        let engine_num = filename
+            .split('_')
+            .next()
+            .and_then(|d| d.parse::<u8>().ok())
+            .unwrap_or(0);
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        artifacts.push(Artifact {
+            filename,
+            engine_num,
+            size_bytes: size,
+            ready: true,
+            path: path.to_string_lossy().to_string(),
+        });
+    }
+
+    // Present them in engine order (report/pdf, engine_num 0, sorts first — keep
+    // it last so the JSON outputs lead), then alphabetically for stability.
+    artifacts.sort_by(|a, b| {
+        let ka = if a.engine_num == 0 { u8::MAX } else { a.engine_num };
+        let kb = if b.engine_num == 0 { u8::MAX } else { b.engine_num };
+        ka.cmp(&kb).then(a.filename.cmp(&b.filename))
+    });
+    Ok(artifacts)
 }
 
 #[tauri::command]
