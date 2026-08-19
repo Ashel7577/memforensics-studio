@@ -130,8 +130,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/macos-build/*.dmg
-            artifacts/windows-installers/*.msi
-            artifacts/windows-installers/*.exe
+            artifacts/macos-build/**/*.dmg
+            artifacts/windows-installers/**/*.msi
+            artifacts/windows-installers/**/*.exe
           generate_release_notes: true
           token: ${{ secrets.GITHUB_TOKEN }}
