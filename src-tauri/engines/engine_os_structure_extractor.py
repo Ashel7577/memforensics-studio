@@ -90,18 +90,83 @@ def parse_hex_address(addr_str: str) -> str:
     return f"0x{addr_str}"
 
 
+# Volatility downloads the kernel symbol table (ISF) for the dump's exact
+# Windows build on the first analysis of that build, and caches it under
+# %APPDATA%\volatility3 (or ~/.cache/volatility3). That download runs inside
+# the first plugin's own timeout, so on a slow link — or simply on a slower
+# machine than the one these limits were tuned on — a first run could exceed
+# the limit doing nothing but fetching symbols. Every limit is therefore scaled
+# by this factor, and the scale can be raised further without a rebuild.
+def _scaled(base: int) -> int:
+    try:
+        scale = float(os.environ.get("MEMFORENSICS_VOL_TIMEOUT_SCALE", "3"))
+    except (TypeError, ValueError):
+        scale = 3.0
+    if scale <= 0:
+        scale = 1.0
+    return max(base, int(base * scale))
+
+
+# Fragments Volatility prints when it cannot obtain a symbol table for the
+# image — nearly always a first run with no network rather than a bad dump.
+_SYMBOL_ERROR_MARKERS = (
+    "symbol table not found",
+    "unable to validate the plugin requirements",
+    "no suitable requirements fulfilled",
+    "could not find a suitable symbol",
+    "isf",
+)
+
+
+def symbol_failure_hint(output: str) -> Optional[str]:
+    """An actionable message if `output` shows a symbol-resolution failure."""
+    if not output:
+        return None
+    low = output.lower()
+    if not any(marker in low for marker in _SYMBOL_ERROR_MARKERS):
+        return None
+    return (
+        "Volatility could not load the kernel symbol table for this memory image. "
+        "The symbol file for the image's Windows build is downloaded once, from "
+        "Microsoft's public symbol server, and then cached for every later run — "
+        "so the first analysis of a given Windows build needs an internet "
+        "connection. Connect and run this stage again, or place the matching ISF "
+        "file in the volatility3 symbols cache."
+    )
+
+
 def run_volatility(memory_path: Path, plugin: str, extra_args: List[str] = None, timeout: int = 300) -> subprocess.CompletedProcess:
-    """Standardized Volatility runner"""
+    """Standardized Volatility runner.
+
+    A timeout is reported as a failed run rather than raised: every caller
+    already inspects `returncode`, whereas an escaping TimeoutExpired killed
+    the whole stage with a traceback and no indication of which plugin stalled.
+    """
     cmd = [VOL_BIN, "-f", str(memory_path), plugin]
     if extra_args:
         cmd.extend(extra_args)
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True, **VOL_RUN_KW,
-        timeout=timeout
-    )
+    limit = _scaled(timeout)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True, **VOL_RUN_KW,
+            timeout=limit
+        )
+    except subprocess.TimeoutExpired:
+        msg = (f"Volatility plugin {plugin} did not finish within {limit}s and was stopped. "
+               f"Set MEMFORENSICS_VOL_TIMEOUT_SCALE higher to allow it more time.")
+        print(f"  ⚠️  {msg}")
+        return subprocess.CompletedProcess(cmd, 124, "", msg)
+    except OSError as e:
+        msg = f"Could not run Volatility ({VOL_BIN}) for plugin {plugin}: {e}"
+        print(f"  ⚠️  {msg}")
+        return subprocess.CompletedProcess(cmd, 126, "", msg)
+
+    hint = symbol_failure_hint((result.stderr or "") + (result.stdout or ""))
+    if hint and result.returncode != 0:
+        print(f"  ⚠️  {hint}")
     return result
 
 
@@ -120,6 +185,9 @@ def extract_processes_pslist(memory_path: Path) -> List[Dict[str, Any]]:
     result = run_volatility(memory_path, "windows.pslist", timeout=300)
 
     if result.returncode != 0:
+        hint = symbol_failure_hint((result.stderr or "") + (result.stdout or ""))
+        if hint:
+            raise RuntimeError(hint)
         raise RuntimeError(f"Volatility pslist failed: {result.stderr}")
 
     processes = []
@@ -563,7 +631,7 @@ def dump_and_analyze_region(memory_path: Path, pid: int, base_address: str,
     try:
         cmd = [VOL_BIN, "-f", str(memory_path), "-o", str(work_dir),
                "windows.vadinfo", "--pid", str(pid), "--dump"]
-        result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=_scaled(180))
         if result.returncode != 0:
             return None
     except Exception:
@@ -870,7 +938,7 @@ def enrich_private_exec_vads_with_byte_analysis(memory_path: Path, processes: Li
             cmd = [VOL_BIN, "-f", str(memory_path), "-o", str(work_dir),
                    "windows.vadinfo", "--pid", str(pid), "--dump"]
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=180)
+                result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=_scaled(180))
             except subprocess.TimeoutExpired:
                 print(f"    ⚠️  PID {pid}: vadinfo --dump timed out (180s) — skipping")
                 continue
@@ -1004,7 +1072,7 @@ def dump_and_hash_process_image(memory_path, pid: int, work_dir: str) -> Optiona
     try:
         cmd = [VOL_BIN, "-f", str(memory_path), "-o", str(work_dir),
                "windows.dumpfiles", "--pid", str(pid)]
-        result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, text=True, **VOL_RUN_KW, timeout=_scaled(180))
         # FIX: don't give up the moment returncode != 0. dumpfiles dumps
         # multiple file objects per process (the EXE plus every loaded
         # DLL) and can crash partway through — e.g. it successfully writes
@@ -1043,7 +1111,7 @@ def dump_and_hash_process_image(memory_path, pid: int, work_dir: str) -> Optiona
         try:
             cmd2 = [VOL_BIN, "-f", str(memory_path), "-o", str(work_dir),
                     "windows.memmap", "--pid", str(pid), "--dump"]
-            result2 = subprocess.run(cmd2, capture_output=True, text=True, **VOL_RUN_KW, timeout=180)
+            result2 = subprocess.run(cmd2, capture_output=True, text=True, **VOL_RUN_KW, timeout=_scaled(180))
         except Exception as e:
             print(f"    [memmap fallback] exception for PID {pid}: {e}")
             return None
@@ -1153,7 +1221,7 @@ def run_malfind_reference_scan(memory_path: Path) -> List[Dict[str, Any]]:
     try:
         result = subprocess.run(
             [VOL_BIN, "-f", str(memory_path), "windows.malfind"],
-            capture_output=True, text=True, **VOL_RUN_KW, timeout=300
+            capture_output=True, text=True, **VOL_RUN_KW, timeout=_scaled(300)
         )
         if result.returncode != 0:
             print(f"  ⚠️  [malfind reference scan] vol exited {result.returncode}: "
@@ -1292,7 +1360,7 @@ def run_memory_string_scan(memory_path: Path, processes: List[Dict[str, Any]],
             result = subprocess.run(
                 [VOL_BIN, "-q", "-f", str(memory_path),
                  "windows.vadregexscan", "--pattern", pattern_str],
-                capture_output=True, text=True, **VOL_RUN_KW, timeout=timeout
+                capture_output=True, text=True, **VOL_RUN_KW, timeout=_scaled(timeout)
             )
         except subprocess.TimeoutExpired:
             msg = f"{category}: vadregexscan timed out after {timeout}s"
