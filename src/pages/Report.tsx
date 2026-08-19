@@ -17,6 +17,9 @@ export default function Report() {
   const ackedRef = useRef(false);
   const retryRef = useRef<number | null>(null);
 
+  const [runStatus, setRunStatus] = useState<string>('');
+  const [runError, setRunError] = useState<string>('');
+
   useEffect(() => {
     if (!jobId) return;
     invoke<any[]>('get_artifacts', { jobId }).then(a => {
@@ -24,6 +27,15 @@ export default function Report() {
       const pdf = a.find(x => x.filename.endsWith('.pdf'));
       if (pdf) setPdfPath(pdf.path);
     });
+    // A run that produced nothing must say why rather than render an empty
+    // card: read its status and the error the failing stage recorded.
+    invoke<string>('get_pipeline_status', { jobId }).then(setRunStatus).catch(() => {});
+    invoke<any[]>('get_engine_progress', { jobId })
+      .then(engines => {
+        const failed = engines.find(e => e.status === 'failed' && e.error);
+        if (failed) setRunError(String(failed.error));
+      })
+      .catch(() => {});
   }, [jobId]);
 
   const loadAnalyzerData = async (artifacts: any[]) => {
@@ -140,12 +152,12 @@ export default function Report() {
         <h2 className="text-primary font-semibold text-lg mb-1">Forensic Report</h2>
         <p className="text-muted text-xs font-mono mb-5">{jobId}</p>
         <div className="flex flex-wrap gap-3">
-          <button onClick={openPDF}
-            className="flex items-center gap-2 bg-blue text-white rounded-lg px-6 py-3 font-semibold hover:bg-blue/90 transition-colors">
+          <button onClick={openPDF} disabled={!pdfPath}
+            className="flex items-center gap-2 bg-blue text-white rounded-lg px-6 py-3 font-semibold hover:bg-blue/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             <FileText className="w-5 h-5" /> Open PDF Report
           </button>
-          <button onClick={openAnalyzer}
-            className="flex items-center gap-2 border border-blue/30 text-blue rounded-lg px-6 py-3 font-medium hover:bg-blue/10 transition-colors">
+          <button onClick={openAnalyzer} disabled={artifacts.length === 0}
+            className="flex items-center gap-2 border border-blue/30 text-blue rounded-lg px-6 py-3 font-medium hover:bg-blue/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             <Globe className="w-5 h-5" /> {showAnalyzer ? 'Reload Analyzer' : 'Open JSON Analyzer'}
           </button>
         </div>
@@ -176,6 +188,23 @@ export default function Report() {
       {/* Output Files */}
       <div className="bg-card border border-border rounded-xl p-6">
         <h3 className="text-primary font-semibold text-sm uppercase tracking-wide mb-4">Output Files</h3>
+        {artifacts.length === 0 && (
+          <div className="border border-red/30 bg-red/5 rounded-lg p-4">
+            <p className="text-primary text-sm mb-2">
+              {runStatus === 'failed'
+                ? 'This run stopped before it produced any output files.'
+                : 'No output files were written for this run yet.'}
+            </p>
+            {runError && (
+              <pre className="text-red text-xs font-mono whitespace-pre-wrap max-h-48 overflow-auto mb-2">
+                {runError}
+              </pre>
+            )}
+            <Link to={`/pipeline/${jobId}`} className="text-blue text-sm hover:underline">
+              Open the pipeline console for this run →
+            </Link>
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {artifacts.map(a => (
             <div key={a.filename}
