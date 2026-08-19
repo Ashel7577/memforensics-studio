@@ -137,7 +137,103 @@ fn resolve_state(app: &tauri::AppHandle, job_id: &str) -> Option<PipelineState> 
             return Some(p.clone());
         }
     }
-    load_state(app, job_id)
+    load_state(app, job_id).or_else(|| reconstruct_state(app, job_id))
+}
+
+/// Rebuild a viewable run from what is on disk when there is no state sidecar.
+///
+/// Runs recorded by earlier versions kept nothing but their metadata and their
+/// artifacts, so the stage graph for one of them would otherwise read as empty.
+/// The artifacts themselves say which stages completed: each engine writes one
+/// numbered output, so a present `0N_` file means stage N finished. The run's
+/// overall status comes from its metadata sidecar.
+fn reconstruct_state(app: &tauri::AppHandle, job_id: &str) -> Option<PipelineState> {
+    let dir = safe_job_dir(app, job_id)?;
+    if !dir.is_dir() {
+        return None;
+    }
+
+    let meta: Option<PipelineRun> = std::fs::read_to_string(dir.join("job_meta.json"))
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok());
+
+    let mut produced: Vec<u8> = vec![];
+    let mut artifacts: Vec<Artifact> = vec![];
+    for entry in std::fs::read_dir(&dir).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let filename = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) if n != "job_meta.json" && n != "run_state.json" => n.to_string(),
+            _ => continue,
+        };
+        let engine_num = filename
+            .split('_')
+            .next()
+            .and_then(|d| d.parse::<u8>().ok())
+            .unwrap_or(0);
+        if engine_num >= 1 && engine_num <= 7 {
+            produced.push(engine_num);
+        }
+        artifacts.push(Artifact {
+            filename,
+            engine_num,
+            size_bytes: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+            ready: true,
+            path: path.to_string_lossy().to_string(),
+        });
+    }
+    artifacts.sort_by(|a, b| {
+        let ka = if a.engine_num == 0 { u8::MAX } else { a.engine_num };
+        let kb = if b.engine_num == 0 { u8::MAX } else { b.engine_num };
+        ka.cmp(&kb).then(a.filename.cmp(&b.filename))
+    });
+
+    if artifacts.is_empty() && meta.is_none() {
+        return None;
+    }
+
+    let selected: Vec<u8> = meta
+        .as_ref()
+        .map(|m| m.engines.clone())
+        .unwrap_or_else(|| (1u8..=7).collect());
+
+    let engines: Vec<EngineProgress> = (1u8..=7)
+        .map(|n| {
+            let mut e = make_engine_progress(
+                n,
+                if !selected.contains(&n) {
+                    "skipped"
+                } else if produced.contains(&n) {
+                    "done"
+                } else {
+                    "pending"
+                },
+            );
+            if e.status == "done" {
+                e.percent = 100;
+            }
+            e
+        })
+        .collect();
+
+    let status = match meta.as_ref().map(|m| m.status.as_str()) {
+        // Nothing is driving a run that is only known from disk.
+        Some("running") | None => {
+            if selected.iter().all(|n| produced.contains(n)) { "done" } else { "failed" }
+        }
+        Some(other) => other,
+    }
+    .to_string();
+
+    Some(PipelineState {
+        status,
+        engines,
+        artifacts,
+        logs: vec![],
+        output_dir: dir.to_string_lossy().to_string(),
+    })
 }
 
 fn engine_names() -> Vec<&'static str> {

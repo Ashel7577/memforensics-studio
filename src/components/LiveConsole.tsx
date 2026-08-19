@@ -406,7 +406,13 @@ export default function LiveConsole({ logs, activeEngine, status }: Props) {
           <div className="relative z-[2] space-y-[3px]">
             {logs.length === 0 && (
               <div className="text-muted italic">
-                Waiting for pipeline output<span className="console-ellipsis" />
+                {status === 'done' || status === 'failed' ? (
+                  /* A run opened from history that carries no stored console —
+                   * never claim to be waiting on output that will never come. */
+                  <>Console output is not available for this run — its artifacts are on the report page.</>
+                ) : (
+                  <>Waiting for pipeline output<span className="console-ellipsis" /></>
+                )}
               </div>
             )}
             {logs.length > 0 && visible.length === 0 && (
