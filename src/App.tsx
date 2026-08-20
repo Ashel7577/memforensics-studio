@@ -551,7 +551,7 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
             borderRadius: "50%",
             pointerEvents: "none",
             zIndex: 10,
-            filter: "invert(1) sepia(1) saturate(2) hue-rotate(320deg) brightness(0.55) contrast(1.2)",
+            filter: "invert(1) sepia(1) saturate(2) hue-rotate(320deg) brightness(0.20) contrast(1.2)",
           }}
         />
       )}
