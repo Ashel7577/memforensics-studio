@@ -24,7 +24,18 @@ from typing import Dict, Any, List, Optional
 # explicitly instead, and never let a stray byte abort a run. On Windows also
 # suppress the console window every child process would otherwise flash over the
 # app.
+#
+# The same applies in the other direction: Volatility's own stdout must be
+# UTF-8, or its text renderer raises UnicodeEncodeError half way through a grid
+# containing a non-cp1252 service description or file path, and the plugin exits
+# non-zero with a truncated traceback. The bundled interpreter is told to encode
+# as UTF-8 through the environment as well as in its launcher script, so an
+# already-built binary behaves too.
 VOL_RUN_KW: Dict[str, Any] = {"encoding": "utf-8", "errors": "replace"}
+_VOL_ENV = dict(os.environ)
+_VOL_ENV["PYTHONIOENCODING"] = "utf-8"
+_VOL_ENV["PYTHONUTF8"] = "1"
+VOL_RUN_KW["env"] = _VOL_ENV
 if os.name == "nt":
     VOL_RUN_KW["creationflags"] = subprocess.CREATE_NO_WINDOW
 
@@ -168,6 +179,23 @@ def run_volatility(memory_path: Path, plugin: str, extra_args: List[str] = None,
     if hint and result.returncode != 0:
         print(f"  ⚠️  {hint}")
     return result
+
+
+def vol_failure_detail(result) -> str:
+    """Summarise why a Volatility invocation failed.
+
+    Volatility floods stderr with carriage-return progress updates, so slicing
+    the raw string usually yields nothing readable. Take the last few real
+    lines instead — for a crash that is the exception type and message, which is
+    the only part worth showing in the console.
+    """
+    blob = ((getattr(result, "stderr", "") or "") + "\n"
+            + (getattr(result, "stdout", "") or ""))
+    lines = [ln.strip() for ln in blob.replace('\r', '\n').split('\n') if ln.strip()]
+    lines = [ln for ln in lines if not ln.startswith("Progress:")]
+    if not lines:
+        return "no output"
+    return " | ".join(lines[-3:])[-300:]
 
 
 def clean_vol_output(output: str) -> List[str]:
@@ -943,7 +971,8 @@ def enrich_private_exec_vads_with_byte_analysis(memory_path: Path, processes: Li
                 print(f"    ⚠️  PID {pid}: vadinfo --dump timed out (180s) — skipping")
                 continue
             if result.returncode != 0:
-                print(f"    ⚠️  PID {pid}: vadinfo --dump failed (exit {result.returncode}) — skipping")
+                print(f"    ⚠️  PID {pid}: vadinfo --dump failed (exit {result.returncode}) — skipping: "
+                      f"{vol_failure_detail(result)}")
                 continue
 
             dumped_files = list(work_dir.glob(f"pid.{pid}.*"))
@@ -1225,7 +1254,7 @@ def run_malfind_reference_scan(memory_path: Path) -> List[Dict[str, Any]]:
         )
         if result.returncode != 0:
             print(f"  ⚠️  [malfind reference scan] vol exited {result.returncode}: "
-                  f"{(result.stderr or result.stdout or '').strip()[-300:]}")
+                  f"{vol_failure_detail(result)}")
             return []
     except Exception as e:
         print(f"  ⚠️  [malfind reference scan] exception: {e}")
@@ -1375,7 +1404,7 @@ def run_memory_string_scan(memory_path: Path, processes: List[Dict[str, Any]],
 
         if result.returncode != 0:
             msg = (f"{category}: vadregexscan exited {result.returncode}: "
-                   f"{(result.stderr or result.stdout or '').strip()[-300:]}")
+                   f"{vol_failure_detail(result)}")
             print(f"    ⚠️  {msg}")
             summary["errors"].append(msg)
             continue
@@ -1890,7 +1919,7 @@ def extract_service_persistence(memory_path: Path) -> List[Dict[str, Any]]:
         print(f"    [persistence] windows.svcscan error: {e}")
         return []
     if result.returncode != 0:
-        print(f"    [persistence] windows.svcscan failed: {(result.stderr or '').strip()[-200:]}")
+        print(f"    [persistence] windows.svcscan failed: {vol_failure_detail(result)}")
         return []
 
     STANDARD_DIRS = ("c:\\windows\\system32\\", "c:\\windows\\syswow64\\")
@@ -1950,7 +1979,7 @@ def extract_file_artifacts(memory_path: Path) -> List[Dict[str, Any]]:
 
     if result.returncode != 0:
         print(f"⚠️ windows.filescan failed (exit {result.returncode}): "
-              f"{(result.stderr or result.stdout or '').strip()[-500:]}")
+              f"{vol_failure_detail(result)}")
         return artifacts
 
     # Patterns for forensically interesting files
@@ -2030,12 +2059,12 @@ def extract_network_connections(memory_path: Path) -> Dict[int, List[Dict[str, A
 
     if result.returncode != 0:
         print(f"⚠️ windows.netscan failed (exit {result.returncode}): "
-              f"{(result.stderr or result.stdout or '').strip()[-500:]}")
+              f"{vol_failure_detail(result)}")
         print("⚠️ Trying windows.netstat as fallback...")
         result = run_volatility(memory_path, "windows.netstat", timeout=120)
         if result.returncode != 0:
             print(f"⚠️ windows.netstat also failed (exit {result.returncode}): "
-                  f"{(result.stderr or result.stdout or '').strip()[-500:]}")
+                  f"{vol_failure_detail(result)}")
             print("⚠️ Network extraction unavailable for this dump")
             return connections_by_pid
 
@@ -2286,7 +2315,7 @@ def extract_processes_psscan(memory_path: Path) -> List[Dict[str, Any]]:
     try:
         result = run_volatility(memory_path, "windows.psscan", timeout=300)
         if result.returncode != 0:
-            print(f"⚠️ psscan failed (non-fatal, cross-view check skipped): {result.stderr[:200]}")
+            print(f"⚠️ psscan failed (non-fatal, cross-view check skipped): {vol_failure_detail(result)}")
             return []
     except Exception as e:
         print(f"⚠️ psscan error (non-fatal, cross-view check skipped): {e}")
@@ -2354,7 +2383,7 @@ def extract_modules_modscan(memory_path: Path) -> List[Dict[str, Any]]:
     try:
         result = run_volatility(memory_path, "windows.modscan", timeout=300)
         if result.returncode != 0:
-            print(f"⚠️ modscan failed (non-fatal): {result.stderr[:200]}")
+            print(f"⚠️ modscan failed (non-fatal): {vol_failure_detail(result)}")
             return []
     except Exception as e:
         print(f"⚠️ modscan error (non-fatal): {e}")
