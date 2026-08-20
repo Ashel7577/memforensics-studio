@@ -34,6 +34,7 @@ type Particle = { sx: number; sy: number; tx: number; ty: number; delay: number;
 
 function LoadingScreen({ onComplete }: { onComplete: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const [bugOverlay, setBugOverlay] = useState<{x:number;y:number;r:number;alpha:number}|null>(null);
   const cvRef   = useRef<HTMLCanvasElement>(null);
   const nmRef   = useRef<HTMLDivElement>(null);
   const h1Ref   = useRef<HTMLHeadingElement>(null);
@@ -316,86 +317,21 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
       ctx.strokeStyle = rgba(BLUE, .45); ctx.lineWidth = .7; ctx.stroke(); ctx.restore();
     }
 
-    /**
-     * The anomaly marker: what the lens has found, drawn straight into the
-     * canvas instead of a filtered <img> laid over it. Four corner brackets
-     * frame the site the way an acquisition tool frames a selection, and the
-     * bug itself is a fine amber line drawing sitting on a dark plate.
-     *
-     * It holds still. Its only motion is a shallow breath on the brackets and
-     * a slow blink on the record pip — position, radius, alpha and the fade
-     * curve are all still handed in by the timeline untouched.
-     */
+    // no image preload needed — icon drawn directly
+
     function drawBugGlyph(x: number, y: number, r: number, alpha: number, pulse: number) {
-      if (alpha <= 0) return;
-      const p = .5 + .5 * Math.sin(pulse * 2.2);
+      if (alpha <= 0) { setBugOverlay(null); return; }
+      const p = .5 + .5 * Math.sin(pulse * 4);
       ctx.save(); ctx.globalAlpha = alpha;
-
-      // plate: a shallow dish, not a flat disc
-      const plate = ctx.createRadialGradient(x - r * .3, y - r * .35, r * .05, x, y, r * .92);
-      plate.addColorStop(0, "rgba(26,18,12,.92)");
-      plate.addColorStop(.7, "rgba(12,9,7,.94)");
-      plate.addColorStop(1, "rgba(4,4,6,.96)");
-      ctx.beginPath(); ctx.arc(x, y, r * .92, 0, Math.PI * 2);
-      ctx.fillStyle = plate; ctx.fill();
-      ctx.strokeStyle = rgba(RED, .34); ctx.lineWidth = 1;
-      ctx.stroke();
-
-      /* --- the bug, drawn as one continuous fine line --- */
-      const u = r * .028;                       // one stroke unit
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.strokeStyle = rgba(RED_LIGHT, .85);
-      ctx.lineWidth = Math.max(1, u * 1.5);
-      ctx.lineCap = "round"; ctx.lineJoin = "round";
-
-      const bw = r * .30, bh = r * .42;         // abdomen
-      ctx.beginPath();
-      ctx.ellipse(0, r * .06, bw, bh, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // dorsal seam
-      ctx.beginPath();
-      ctx.moveTo(0, -r * .30); ctx.lineTo(0, r * .40);
-      ctx.stroke();
-      // head and antennae
-      ctx.beginPath();
-      ctx.arc(0, -r * .40, r * .155, Math.PI, 0);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-r * .11, -r * .50); ctx.lineTo(-r * .26, -r * .64);
-      ctx.moveTo(r * .11, -r * .50); ctx.lineTo(r * .26, -r * .64);
-      ctx.stroke();
-      // three legs a side, elbowed
-      for (let i = 0; i < 3; i++) {
-        const ly = -r * .12 + i * r * .20;
-        const spread = r * (i === 1 ? .50 : .46);
-        for (const sgn of [-1, 1]) {
-          ctx.beginPath();
-          ctx.moveTo(sgn * bw * .82, ly);
-          ctx.lineTo(sgn * spread * .72, ly + (i - 1) * r * .06);
-          ctx.lineTo(sgn * spread, ly + (i - 1) * r * .14 + r * .07);
-          ctx.stroke();
-        }
-      }
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#0d1020"; ctx.fill();
+      ctx.strokeStyle = rgba(RED, .7); ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, r*(1.08+p*.06), 0, Math.PI*2);
+      ctx.strokeStyle = rgba(RED, p*.3); ctx.lineWidth=1; ctx.stroke();
+      ctx.beginPath(); ctx.arc(x+r*.65,y-r*.6,r*.09,0,Math.PI*2);
+      ctx.fillStyle=rgba(RED,p); ctx.fill();
       ctx.restore();
-
-      /* --- acquisition brackets --- */
-      const b = r * (1.06 + p * .03);
-      const arm = r * .30;
-      ctx.strokeStyle = rgba(RED, .55); ctx.lineWidth = 1.2; ctx.lineCap = "butt";
-      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-        ctx.beginPath();
-        ctx.moveTo(x + sx * b, y + sy * b - sy * arm);
-        ctx.lineTo(x + sx * b, y + sy * b);
-        ctx.lineTo(x + sx * b - sx * arm, y + sy * b);
-        ctx.stroke();
-      }
-
-      // record pip, top right, blinking slowly
-      ctx.beginPath(); ctx.arc(x + r * .68, y - r * .68, r * .055, 0, Math.PI * 2);
-      ctx.fillStyle = rgba(RED_LIGHT, .35 + p * .5); ctx.fill();
-
-      ctx.restore();
+      setBugOverlay({x, y, r, alpha});
     }
 
     let mAlpha = 0, mRed = false, mr = LENS_R, mx = cx, my = cy;
@@ -481,7 +417,7 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
         const p = eIn((elapsed - T_LOCK) / (T_FADE - T_LOCK));
         mAlpha = 1 - p; mx = TARGET.x; my = TARGET.y; mr = 20; mRed = true;
       }
-      if (elapsed >= T_FADE) { mAlpha = 0; }
+      if (elapsed >= T_FADE) { mAlpha = 0; const el=document.getElementById('mf-bug-overlay'); if(el)(el as HTMLElement).style.display='none'; }
 
       hexes.forEach(h => {
         if (h.lit < .01 && !h.malware) return;
@@ -532,6 +468,8 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
       }
 
       if (elapsed < T_FORM * .7 || elapsed >= T_FORM) drawMagnifier(mx, my, mr, mAlpha, mRed);
+
+      if (elapsed >= T_LOCK) { setBugOverlay(null); }
 
       if (elapsed >= T_FADE && elapsed < T_NAME) {
         const p = eOut(Math.min(1, (elapsed - T_FADE) / (T_NAME - T_FADE)));
@@ -600,6 +538,23 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
         <div ref={progBarRef} style={{ height: "100%", width: "0%", background: "linear-gradient(90deg,#8ea9f0,#63d0d8)" }} />
       </div>
 
+      {bugOverlay && (
+        <img
+          src="/ashel.png"
+          style={{
+            position: "absolute",
+            left: bugOverlay.x - bugOverlay.r * 0.9,
+            top: bugOverlay.y - bugOverlay.r * 0.9,
+            width: bugOverlay.r * 1.8,
+            height: bugOverlay.r * 1.8,
+            opacity: bugOverlay.alpha,
+            borderRadius: "50%",
+            pointerEvents: "none",
+            zIndex: 10,
+            filter: "invert(1) sepia(1) saturate(2) hue-rotate(320deg) brightness(0.55) contrast(1.2)",
+          }}
+        />
+      )}
       <div ref={stRef} style={{ position: "absolute", bottom: 22, left: "50%", transform: "translateX(-50%)", fontFamily: "'Share Tech Mono',monospace", fontSize: ".52rem", letterSpacing: ".2em", color: "rgba(140,195,230,.45)", whiteSpace: "nowrap", opacity: 0 }} />
     </div>
   );
