@@ -34,7 +34,6 @@ type Particle = { sx: number; sy: number; tx: number; ty: number; delay: number;
 
 function LoadingScreen({ onComplete }: { onComplete: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [bugOverlay, setBugOverlay] = useState<{x:number;y:number;r:number;alpha:number}|null>(null);
   const cvRef   = useRef<HTMLCanvasElement>(null);
   const nmRef   = useRef<HTMLDivElement>(null);
   const h1Ref   = useRef<HTMLHeadingElement>(null);
@@ -129,105 +128,177 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
     }
 
     /**
-     * The lens. Same optics language as the dashboard scope: a bluish glass
-     * body, one metal rim with two lit edges, and two opposing highlights —
-     * the pair of highlights is what makes a curved surface read as curved.
-     * Ornament is kept deliberately low; the detail is in the gradients.
+     * The lens. One instrument, drawn the way a real optic reads: a dark
+     * coated glass that gets deeper toward the rim, a machined bezel lit from
+     * the upper left, a single specular arc riding that same edge, and a
+     * barrel-and-grip handle with a ferrule where it meets the housing.
+     *
+     * Everything here is cosmetic. The signature, the radius and the alpha are
+     * exactly what the timeline hands in, so the lens sits and moves where it
+     * always did.
      */
     function drawMagnifier(x: number, y: number, r: number, alpha: number, red: boolean) {
       if (alpha <= 0) return;
       ctx.save(); ctx.globalAlpha = alpha;
       const ac = red ? RED : BLUE;
       const ac2 = red ? RED_LIGHT : PURPLE;
+      const LIT = -Math.PI * 0.75;   // one light source, upper left, for every surface
 
-      // halo bedded into the field
-      const halo = ctx.createRadialGradient(x, y, r * .8, x, y, r * 2);
-      halo.addColorStop(0, rgba(ac, .10)); halo.addColorStop(1, rgba(ac, 0));
-      ctx.beginPath(); ctx.arc(x, y, r * 2, 0, Math.PI * 2); ctx.fillStyle = halo; ctx.fill();
+      /* --- the handle goes down first so the housing overlaps its root --- */
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(Math.PI * .25);
+      const hw = r * .115, hl = r * .95;
+      // shadow under the barrel keeps it from floating on the field
+      ctx.fillStyle = "rgba(0,0,0,.5)";
+      ctx.beginPath();
+      ctx.roundRect(r - 2, -hw + 1.2, hl, hw * 2, hw);
+      ctx.fill();
+      // barrel
+      const grip = ctx.createLinearGradient(0, -hw, 0, hw);
+      grip.addColorStop(0, red ? "#6d5233" : "#54697a");
+      grip.addColorStop(.26, red ? "#32240f" : "#26343f");
+      grip.addColorStop(.58, "#101820");
+      grip.addColorStop(1, "#06090d");
+      ctx.fillStyle = grip;
+      ctx.beginPath();
+      ctx.moveTo(r - 3, -hw);
+      ctx.lineTo(r + hl * .74, -hw * .82);
+      ctx.quadraticCurveTo(r + hl, -hw * .7, r + hl, 0);
+      ctx.quadraticCurveTo(r + hl, hw * .7, r + hl * .74, hw * .82);
+      ctx.lineTo(r - 3, hw);
+      ctx.closePath(); ctx.fill();
+      // ferrule: the collar where grip meets housing
+      const fer = ctx.createLinearGradient(0, -hw, 0, hw);
+      fer.addColorStop(0, rgba(ac2, .38)); fer.addColorStop(.5, "#1b242e"); fer.addColorStop(1, "#0a0f14");
+      ctx.fillStyle = fer;
+      ctx.fillRect(r - 3, -hw * 1.06, r * .17, hw * 2.12);
+      // the grip is furniture, not the subject — a dark contour keeps it back
+      ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.lineWidth = .8;
+      ctx.beginPath();
+      ctx.moveTo(r - 3, hw);
+      ctx.lineTo(r + hl * .74, hw * .82);
+      ctx.quadraticCurveTo(r + hl, hw * .7, r + hl, 0);
+      ctx.stroke();
+      // one lit edge along the top of the barrel
+      ctx.strokeStyle = "rgba(222,240,255,.22)"; ctx.lineWidth = .7;
+      ctx.beginPath();
+      ctx.moveTo(r + r * .2, -hw * .58); ctx.lineTo(r + hl * .72, -hw * .48);
+      ctx.stroke();
+      ctx.restore();
 
-      // glass body — cool interior, deepening toward the rim
-      const lg = ctx.createRadialGradient(x - r * .3, y - r * .3, r * .05, x, y, r);
-      lg.addColorStop(0, red ? "rgba(34,20,10,0.92)" : "rgba(14,26,42,0.92)");
-      lg.addColorStop(.62, red ? "rgba(20,11,6,0.94)" : "rgba(8,16,28,0.94)");
-      lg.addColorStop(1, "rgba(3,6,12,0.96)");
+      /* --- halo bedded into the field --- */
+      const halo = ctx.createRadialGradient(x, y, r * .78, x, y, r * 2.1);
+      halo.addColorStop(0, rgba(ac, .11)); halo.addColorStop(.55, rgba(ac, .035)); halo.addColorStop(1, rgba(ac, 0));
+      ctx.beginPath(); ctx.arc(x, y, r * 2.1, 0, Math.PI * 2); ctx.fillStyle = halo; ctx.fill();
+
+      /* --- coated glass --- */
+      const lg = ctx.createRadialGradient(x - r * .34, y - r * .36, r * .04, x, y, r);
+      lg.addColorStop(0, red ? "rgba(46,28,13,0.93)" : "rgba(18,33,52,0.93)");
+      lg.addColorStop(.55, red ? "rgba(24,14,7,0.95)" : "rgba(10,19,32,0.95)");
+      lg.addColorStop(1, "rgba(2,5,10,0.97)");
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = lg; ctx.fill();
 
-      // etched reticle: gapped crosshair and a single ranging ring
-      ctx.strokeStyle = rgba(ac, .30); ctx.lineWidth = .8;
-      const gap = r * .2, arm = r * .74;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(x, y, r - 1.4, 0, Math.PI * 2); ctx.clip();
+
+      // etched reticle: gapped crosshair with end serifs
+      ctx.strokeStyle = rgba(ac, .34); ctx.lineWidth = .8; ctx.lineCap = "butt";
+      const gap = r * .19, arm = r * .78;
       [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dx, dy]) => {
         ctx.beginPath();
         ctx.moveTo(x + dx * gap, y + dy * gap);
         ctx.lineTo(x + dx * arm, y + dy * arm);
         ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + dx * arm - dy * r * .045, y + dy * arm - dx * r * .045);
+        ctx.lineTo(x + dx * arm + dy * r * .045, y + dy * arm + dx * r * .045);
+        ctx.stroke();
       });
+
+      // ranging ring
       ctx.setLineDash([2, 4]);
       ctx.beginPath(); ctx.arc(x, y, r * .52, 0, Math.PI * 2);
-      ctx.strokeStyle = rgba(ac2, .16); ctx.lineWidth = .6; ctx.stroke();
+      ctx.strokeStyle = rgba(ac2, .18); ctx.lineWidth = .6; ctx.stroke();
       ctx.setLineDash([]);
 
-      // quarter ticks only — four marks instead of forty-eight
-      ctx.strokeStyle = rgba(ac, .45); ctx.lineWidth = 1;
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2;
+      // centre pip
+      ctx.fillStyle = rgba(ac2, .7);
+      ctx.beginPath(); ctx.arc(x, y, .9, 0, Math.PI * 2); ctx.fill();
+
+      // quarter ticks, with faint minor ticks between them
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const major = i % 4 === 0;
+        ctx.strokeStyle = rgba(ac, major ? .5 : .16);
+        ctx.lineWidth = major ? 1 : .6;
+        const inner = r - r * (major ? .15 : .08);
         ctx.beginPath();
-        ctx.moveTo(x + Math.cos(a) * (r - r * .14), y + Math.sin(a) * (r - r * .14));
+        ctx.moveTo(x + Math.cos(a) * inner, y + Math.sin(a) * inner);
         ctx.lineTo(x + Math.cos(a) * (r - r * .02), y + Math.sin(a) * (r - r * .02));
         ctx.stroke();
       }
 
-      // inner shade where the glass meets the rim
-      const shade = ctx.createRadialGradient(x, y, r * .6, x, y, r);
-      shade.addColorStop(0, "rgba(0,0,0,0)"); shade.addColorStop(1, "rgba(0,0,0,.5)");
-      ctx.save();
-      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+      // vignette where the glass curves into the rim
+      const shade = ctx.createRadialGradient(x, y, r * .55, x, y, r);
+      shade.addColorStop(0, "rgba(0,0,0,0)"); shade.addColorStop(1, "rgba(0,0,0,.58)");
       ctx.fillStyle = shade; ctx.fillRect(x - r, y - r, r * 2, r * 2);
 
-      // the two highlights
+      // specular: a broad arc riding the lit edge, plus a small crisp glint.
+      // An arc reads as a curved surface where a blob reads as a smudge.
       ctx.globalCompositeOperation = "screen";
-      ctx.beginPath();
-      ctx.ellipse(x - r * .34, y - r * .38, r * .5, r * .28, -.75, 0, Math.PI * 2);
-      const hi = ctx.createLinearGradient(x - r, y - r, x, y);
-      hi.addColorStop(0, "rgba(226,244,255,.26)"); hi.addColorStop(1, "rgba(226,244,255,0)");
-      ctx.fillStyle = hi; ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(x + r * .4, y + r * .44, r * .28, r * .09, -.75, 0, Math.PI * 2);
-      const hi2 = ctx.createLinearGradient(x, y, x + r, y + r);
-      hi2.addColorStop(0, "rgba(190,225,255,0)"); hi2.addColorStop(1, "rgba(190,225,255,.14)");
-      ctx.fillStyle = hi2; ctx.fill();
+      ctx.lineCap = "round";
+      const sg = ctx.createLinearGradient(x - r, y - r, x + r * .3, y + r * .3);
+      sg.addColorStop(0, "rgba(232,246,255,.30)");
+      sg.addColorStop(.6, "rgba(232,246,255,.06)");
+      sg.addColorStop(1, "rgba(232,246,255,0)");
+      ctx.strokeStyle = sg; ctx.lineWidth = r * .13;
+      ctx.beginPath(); ctx.arc(x, y, r * .82, LIT - .85, LIT + .5); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,.30)"; ctx.lineWidth = r * .035;
+      ctx.beginPath(); ctx.arc(x, y, r * .69, LIT - .34, LIT + .06); ctx.stroke();
+      // cool bounce on the opposite side, where the field lights the coating
+      const bg2 = ctx.createLinearGradient(x, y, x + r, y + r);
+      bg2.addColorStop(0, rgba(ac2, 0)); bg2.addColorStop(1, rgba(ac2, .16));
+      ctx.strokeStyle = bg2; ctx.lineWidth = r * .07;
+      ctx.beginPath(); ctx.arc(x, y, r * .8, LIT + Math.PI - .5, LIT + Math.PI + .55); ctx.stroke();
       ctx.restore();
 
-      // rim: one gradient, lit upper-left, with two edge lines for thickness
+      /* --- bezel: seat, machined body, inner hairline --- */
+      // every housing weight is a fraction of r, so the bezel stays as fine at
+      // the locked-on size as it is at full size
+      const seatW = Math.max(1.2, r * .044);
+      ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.lineWidth = seatW;
+      ctx.beginPath(); ctx.arc(x, y, r + seatW, 0, Math.PI * 2); ctx.stroke();
+
       const rim = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
-      rim.addColorStop(0, red ? "#6b5334" : "#5d7d97");
-      rim.addColorStop(.35, red ? "#33240f" : "#22303e");
-      rim.addColorStop(.68, "#0c1117");
-      rim.addColorStop(1, red ? "#4a3722" : "#3f5568");
-      ctx.strokeStyle = rim; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = rgba(ac2, .28); ctx.lineWidth = .8;
-      ctx.beginPath(); ctx.arc(x, y, r - 1.8, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(x, y, r + 1.6, 0, Math.PI * 2); ctx.stroke();
+      rim.addColorStop(0, red ? "#9c7647" : "#8aa6bb");
+      rim.addColorStop(.22, red ? "#5a4325" : "#4a6274");
+      rim.addColorStop(.52, "#141b22");
+      rim.addColorStop(.78, "#0a0e13");
+      rim.addColorStop(1, red ? "#6d5230" : "#54707f");
+      ctx.strokeStyle = rim; ctx.lineWidth = Math.max(1.8, r * .068);
+      ctx.beginPath(); ctx.arc(x, y, r + .4, 0, Math.PI * 2); ctx.stroke();
 
-      // handle: tapered, one highlight, angled away from the glass
-      ctx.save();
-      ctx.translate(x, y); ctx.rotate(Math.PI * .25);
-      const grip = ctx.createLinearGradient(0, -r * .1, 0, r * .1);
-      grip.addColorStop(0, red ? "#7a5c38" : "#6b8397");
-      grip.addColorStop(.42, "#212c37"); grip.addColorStop(1, "#0d131a");
-      ctx.fillStyle = grip;
-      ctx.beginPath();
-      ctx.moveTo(r - 1, -r * .1);
-      ctx.lineTo(r + r * .72, -r * .075);
-      ctx.quadraticCurveTo(r + r * .84, 0, r + r * .72, r * .075);
-      ctx.lineTo(r - 1, r * .1);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = "rgba(215,238,255,.2)"; ctx.lineWidth = .8;
-      ctx.beginPath();
-      ctx.moveTo(r + 2, -r * .055); ctx.lineTo(r + r * .68, -r * .04);
-      ctx.stroke();
-      ctx.restore();
+      // knurling: short ticks cut into the bezel, only where the light falls
+      ctx.lineWidth = .7;
+      const knurls = r > 34 ? 48 : 30;
+      for (let i = 0; i < knurls; i++) {
+        const a = (i / knurls) * Math.PI * 2;
+        const facing = Math.cos(a - LIT);
+        if (facing <= 0) continue;
+        ctx.strokeStyle = `rgba(226,240,255,${.15 * facing})`;
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(a) * (r - r * .016), y + Math.sin(a) * (r - r * .016));
+        ctx.lineTo(x + Math.cos(a) * (r + r * .038), y + Math.sin(a) * (r + r * .038));
+        ctx.stroke();
+      }
+
+      // the bright inner edge of the housing, brightest along the lit arc
+      ctx.lineWidth = Math.max(.6, r * .018);
+      const inR = r - Math.max(1, r * .032);
+      ctx.strokeStyle = rgba(ac2, .30);
+      ctx.beginPath(); ctx.arc(x, y, inR, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "rgba(232,246,255,.42)";
+      ctx.beginPath(); ctx.arc(x, y, inR, LIT - .7, LIT + .7); ctx.stroke();
 
       ctx.restore();
     }
@@ -245,21 +316,86 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
       ctx.strokeStyle = rgba(BLUE, .45); ctx.lineWidth = .7; ctx.stroke(); ctx.restore();
     }
 
-    // no image preload needed — icon drawn directly
-
+    /**
+     * The anomaly marker: what the lens has found, drawn straight into the
+     * canvas instead of a filtered <img> laid over it. Four corner brackets
+     * frame the site the way an acquisition tool frames a selection, and the
+     * bug itself is a fine amber line drawing sitting on a dark plate.
+     *
+     * It holds still. Its only motion is a shallow breath on the brackets and
+     * a slow blink on the record pip — position, radius, alpha and the fade
+     * curve are all still handed in by the timeline untouched.
+     */
     function drawBugGlyph(x: number, y: number, r: number, alpha: number, pulse: number) {
-      if (alpha <= 0) { setBugOverlay(null); return; }
-      const p = .5 + .5 * Math.sin(pulse * 4);
+      if (alpha <= 0) return;
+      const p = .5 + .5 * Math.sin(pulse * 2.2);
       ctx.save(); ctx.globalAlpha = alpha;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = "#0d1020"; ctx.fill();
-      ctx.strokeStyle = rgba(RED, .7); ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.beginPath(); ctx.arc(x, y, r*(1.08+p*.06), 0, Math.PI*2);
-      ctx.strokeStyle = rgba(RED, p*.3); ctx.lineWidth=1; ctx.stroke();
-      ctx.beginPath(); ctx.arc(x+r*.65,y-r*.6,r*.09,0,Math.PI*2);
-      ctx.fillStyle=rgba(RED,p); ctx.fill();
+
+      // plate: a shallow dish, not a flat disc
+      const plate = ctx.createRadialGradient(x - r * .3, y - r * .35, r * .05, x, y, r * .92);
+      plate.addColorStop(0, "rgba(26,18,12,.92)");
+      plate.addColorStop(.7, "rgba(12,9,7,.94)");
+      plate.addColorStop(1, "rgba(4,4,6,.96)");
+      ctx.beginPath(); ctx.arc(x, y, r * .92, 0, Math.PI * 2);
+      ctx.fillStyle = plate; ctx.fill();
+      ctx.strokeStyle = rgba(RED, .34); ctx.lineWidth = 1;
+      ctx.stroke();
+
+      /* --- the bug, drawn as one continuous fine line --- */
+      const u = r * .028;                       // one stroke unit
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.strokeStyle = rgba(RED_LIGHT, .85);
+      ctx.lineWidth = Math.max(1, u * 1.5);
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+
+      const bw = r * .30, bh = r * .42;         // abdomen
+      ctx.beginPath();
+      ctx.ellipse(0, r * .06, bw, bh, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // dorsal seam
+      ctx.beginPath();
+      ctx.moveTo(0, -r * .30); ctx.lineTo(0, r * .40);
+      ctx.stroke();
+      // head and antennae
+      ctx.beginPath();
+      ctx.arc(0, -r * .40, r * .155, Math.PI, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * .11, -r * .50); ctx.lineTo(-r * .26, -r * .64);
+      ctx.moveTo(r * .11, -r * .50); ctx.lineTo(r * .26, -r * .64);
+      ctx.stroke();
+      // three legs a side, elbowed
+      for (let i = 0; i < 3; i++) {
+        const ly = -r * .12 + i * r * .20;
+        const spread = r * (i === 1 ? .50 : .46);
+        for (const sgn of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(sgn * bw * .82, ly);
+          ctx.lineTo(sgn * spread * .72, ly + (i - 1) * r * .06);
+          ctx.lineTo(sgn * spread, ly + (i - 1) * r * .14 + r * .07);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
-      setBugOverlay({x, y, r, alpha});
+
+      /* --- acquisition brackets --- */
+      const b = r * (1.06 + p * .03);
+      const arm = r * .30;
+      ctx.strokeStyle = rgba(RED, .55); ctx.lineWidth = 1.2; ctx.lineCap = "butt";
+      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        ctx.beginPath();
+        ctx.moveTo(x + sx * b, y + sy * b - sy * arm);
+        ctx.lineTo(x + sx * b, y + sy * b);
+        ctx.lineTo(x + sx * b - sx * arm, y + sy * b);
+        ctx.stroke();
+      }
+
+      // record pip, top right, blinking slowly
+      ctx.beginPath(); ctx.arc(x + r * .68, y - r * .68, r * .055, 0, Math.PI * 2);
+      ctx.fillStyle = rgba(RED_LIGHT, .35 + p * .5); ctx.fill();
+
+      ctx.restore();
     }
 
     let mAlpha = 0, mRed = false, mr = LENS_R, mx = cx, my = cy;
@@ -345,7 +481,7 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
         const p = eIn((elapsed - T_LOCK) / (T_FADE - T_LOCK));
         mAlpha = 1 - p; mx = TARGET.x; my = TARGET.y; mr = 20; mRed = true;
       }
-      if (elapsed >= T_FADE) { mAlpha = 0; const el=document.getElementById('mf-bug-overlay'); if(el)(el as HTMLElement).style.display='none'; }
+      if (elapsed >= T_FADE) { mAlpha = 0; }
 
       hexes.forEach(h => {
         if (h.lit < .01 && !h.malware) return;
@@ -396,8 +532,6 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
       }
 
       if (elapsed < T_FORM * .7 || elapsed >= T_FORM) drawMagnifier(mx, my, mr, mAlpha, mRed);
-
-      if (elapsed >= T_LOCK) { setBugOverlay(null); }
 
       if (elapsed >= T_FADE && elapsed < T_NAME) {
         const p = eOut(Math.min(1, (elapsed - T_FADE) / (T_NAME - T_FADE)));
@@ -466,23 +600,6 @@ function LoadingScreen({ onComplete }: { onComplete: () => void }) {
         <div ref={progBarRef} style={{ height: "100%", width: "0%", background: "linear-gradient(90deg,#8ea9f0,#63d0d8)" }} />
       </div>
 
-      {bugOverlay && (
-        <img
-          src="/ashel.png"
-          style={{
-            position: "absolute",
-            left: bugOverlay.x - bugOverlay.r * 0.9,
-            top: bugOverlay.y - bugOverlay.r * 0.9,
-            width: bugOverlay.r * 1.8,
-            height: bugOverlay.r * 1.8,
-            opacity: bugOverlay.alpha,
-            borderRadius: "50%",
-            pointerEvents: "none",
-            zIndex: 10,
-            filter: "invert(1) sepia(1) saturate(2) hue-rotate(320deg) brightness(0.55) contrast(1.2)",
-          }}
-        />
-      )}
       <div ref={stRef} style={{ position: "absolute", bottom: 22, left: "50%", transform: "translateX(-50%)", fontFamily: "'Share Tech Mono',monospace", fontSize: ".52rem", letterSpacing: ".2em", color: "rgba(140,195,230,.45)", whiteSpace: "nowrap", opacity: 0 }} />
     </div>
   );
